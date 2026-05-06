@@ -156,7 +156,7 @@ func runVersion() error {
 
 func ValidateShareFlags(f shareFlags) error {
 	if f.token == "" {
-		return fmt.Errorf("--token is required")
+		return fmt.Errorf("--token is required\nGenerate a PAT here: https://github.com/settings/tokens/new?scopes=repo")
 	}
 	if f.repo == "" {
 		return fmt.Errorf("--repo is required")
