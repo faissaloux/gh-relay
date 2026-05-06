@@ -262,7 +262,7 @@ A "Download ZIP" button appears in the guest's browser. The ZIP is streamed dire
 
 | Flag | Default | Description |
 |---|---|---|
-| `--token` | *(required)* | GitHub PAT with `repo` or `public_repo` scope |
+| `--token` | *(required)* | GitHub PAT with `repo` scope. [Generate one here](https://github.com/settings/tokens/new?scopes=repo). |
 | `--repo` | *(required)* | Target repository in `owner/repo` format |
 | `--branch` | `main` | Branch to share |
 | `--port` | `8080` | Local port for the proxy server |
@@ -306,6 +306,8 @@ For **classic PATs**:
 - `public_repo` | for public repositories only
 
 > **Tip:** Create a dedicated PAT for gh-relay sessions with the minimum required scopes and a short expiry matching your longest expected review session.
+>
+> **Quick start:** Generate a classic PAT with `repo` scope at https://github.com/settings/tokens/new?scopes=repo
 
 ---
 

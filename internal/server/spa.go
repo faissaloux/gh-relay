@@ -257,7 +257,15 @@ async function loadTree(branch) {
 
 function renderTree(entries) {
   var filter = state.filterText.toLowerCase();
-  var filtered = filter ? entries.filter(function(e) { return e.path.toLowerCase().includes(filter); }) : entries;
+  
+  var filtered = filter ? entries.filter(function(e) { 
+    return e.path.toLowerCase().includes(filter); 
+  }) : entries;
+
+  filtered.sort(function(a, b) {
+    return a.path.localeCompare(b.path, undefined, {numeric: true, sensitivity: 'base'});
+  });
+
   $('tree-count').textContent = filtered.length + ' files';
   var container = $('file-tree');
   container.innerHTML = '';
@@ -276,6 +284,9 @@ function renderTree(entries) {
   }
 
   var root = {};
+  // Sort entries before building the tree to ensure consistency
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  
   entries.forEach(function(e) {
     var parts = e.path.split('/');
     var node = root;
@@ -289,11 +300,16 @@ function renderTree(entries) {
   function renderNode(nodeMap, depth) {
     var frag = document.createDocumentFragment();
     var keys = Object.keys(nodeMap).sort(function(a, b) {
-      var aIsDir = Object.keys(nodeMap[a].__children).length > 0 && !nodeMap[a].__entry;
-      var bIsDir = Object.keys(nodeMap[b].__children).length > 0 && !nodeMap[b].__entry;
+      var aItem = nodeMap[a];
+      var bItem = nodeMap[b];
+      
+      var aIsDir = Object.keys(aItem.__children).length > 0;
+      var bIsDir = Object.keys(bItem.__children).length > 0;
+
       if (aIsDir && !bIsDir) return -1;
       if (!aIsDir && bIsDir) return 1;
-      return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
+      
+      return a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
     });
     keys.forEach(function(key) {
       var item = nodeMap[key];
