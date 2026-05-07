@@ -161,3 +161,45 @@ func TestValidateShareFlags_ValidPortBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestVisibilityLabel(t *testing.T) {
+	if visibilityLabel(true) != "private" {
+		t.Error("expected 'private' for true")
+	}
+	if visibilityLabel(false) != "public" {
+		t.Error("expected 'public' for false")
+	}
+}
+
+func TestContainsString(t *testing.T) {
+	ss := []string{"a", "b", "c"}
+	if !containsString(ss, "a") {
+		t.Error("expected 'a' to be in slice")
+	}
+	if !containsString(ss, "b") {
+		t.Error("expected 'b' to be in slice")
+	}
+	if containsString(ss, "d") {
+		t.Error("expected 'd' not to be in slice")
+	}
+	if containsString(nil, "a") {
+		t.Error("expected nil slice to return false")
+	}
+}
+
+func TestSecretScanEntries(t *testing.T) {
+	entries := []github.TreeEntry{
+		{Path: "src/main.go", Type: "blob", Size: 100},
+		{Path: "docs", Type: "tree"},
+	}
+	result := secretScanEntries(entries)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result[0].Path != "src/main.go" {
+		t.Errorf("expected path 'src/main.go', got %q", result[0].Path)
+	}
+	if result[0].Type != "blob" {
+		t.Errorf("expected type 'blob', got %q", result[0].Type)
+	}
+}
