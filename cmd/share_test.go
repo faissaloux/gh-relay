@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.ibm.com/soub4i/gh-relay/internal/filter"
 	"github.ibm.com/soub4i/gh-relay/internal/github"
@@ -159,5 +162,76 @@ func TestValidateShareFlags_ValidPortBoundaries(t *testing.T) {
 				t.Fatalf("ValidateShareFlags() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestVisibilityLabel(t *testing.T) {
+	if visibilityLabel(true) != "private" {
+		t.Error("expected 'private' for true")
+	}
+	if visibilityLabel(false) != "public" {
+		t.Error("expected 'public' for false")
+	}
+}
+
+func TestContainsString(t *testing.T) {
+	ss := []string{"a", "b", "c"}
+	if !containsString(ss, "a") {
+		t.Error("expected 'a' to be in slice")
+	}
+	if !containsString(ss, "b") {
+		t.Error("expected 'b' to be in slice")
+	}
+	if containsString(ss, "d") {
+		t.Error("expected 'd' not to be in slice")
+	}
+	if containsString(nil, "a") {
+		t.Error("expected nil slice to return false")
+	}
+}
+
+func TestSecretScanEntries(t *testing.T) {
+	entries := []github.TreeEntry{
+		{Path: "src/main.go", Type: "blob", Size: 100},
+		{Path: "docs", Type: "tree"},
+	}
+	result := secretScanEntries(entries)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result[0].Path != "src/main.go" {
+		t.Errorf("expected path 'src/main.go', got %q", result[0].Path)
+	}
+	if result[0].Type != "blob" {
+		t.Errorf("expected type 'blob', got %q", result[0].Type)
+	}
+}
+
+func TestWaitForServer_Timeout(t *testing.T) {
+	err := waitForServer("http://localhost:9999/v1/health", 50*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error for server that doesn't exist")
+	}
+}
+
+func TestWaitForServer_Success(t *testing.T) {
+	ln, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := &http.Server{Handler: mux}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	url := "http://" + ln.Addr().String() + "/v1/health"
+	err = waitForServer(url, 2*time.Second)
+	if err != nil {
+		t.Fatalf("waitForServer() error = %v", err)
 	}
 }

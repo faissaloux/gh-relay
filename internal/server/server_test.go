@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +205,7 @@ type fakeGitHub struct {
 	trees        map[string]*github.Tree
 	blobs        map[string][]byte
 	getBlobCalls int
+	commits      []github.CommitInfo
 }
 
 func (f *fakeGitHub) GetTree(_ context.Context, _, _, ref string) (*github.Tree, error) {
@@ -223,9 +226,326 @@ func (f *fakeGitHub) GetBlob(_ context.Context, _, _, sha string) ([]byte, error
 }
 
 func (f *fakeGitHub) GetCommits(_ context.Context, _, _, _ string) ([]github.CommitInfo, error) {
-	return nil, nil
+	return f.commits, nil
 }
 
 func (f *fakeGitHub) GetZipball(_ context.Context, _, _, _ string) (*http.Response, error) {
 	return nil, nil
+}
+
+func TestHandleInfo(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	rr := apiRequest(srv, "/api/info")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/info status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var info struct {
+		Owner   string   `json:"owner"`
+		Repo    string   `json:"repo"`
+		Branch  string   `json:"branch"`
+		Branches []string `json:"branches"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&info); err != nil {
+		t.Fatalf("decoding info response: %v", err)
+	}
+	if info.Owner != "owner" {
+		t.Fatalf("expected owner 'owner', got %q", info.Owner)
+	}
+	if info.Repo != "repo" {
+		t.Fatalf("expected repo 'repo', got %q", info.Repo)
+	}
+	if info.Branch != "main" {
+		t.Fatalf("expected branch 'main', got %q", info.Branch)
+	}
+}
+
+func TestHandleCommits(t *testing.T) {
+	tree := testTree()
+	srv, fake := newTestServer(t, nil, tree)
+	fake.commits = []github.CommitInfo{
+		{SHA: "abc123", Commit: struct {
+			Message string `json:"message"`
+			Author  struct {
+				Name string `json:"name"`
+				Date string `json:"date"`
+			} `json:"author"`
+		}{Message: "feat: initial commit"}},
+	}
+
+	rr := apiRequest(srv, "/api/commits?branch=main")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/commits status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var commits []github.CommitInfo
+	if err := json.NewDecoder(rr.Body).Decode(&commits); err != nil {
+		t.Fatalf("decoding commits response: %v", err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("expected 1 commit, got %d", len(commits))
+	}
+	if commits[0].SHA != "abc123" {
+		t.Fatalf("expected commit SHA 'abc123', got %q", commits[0].SHA)
+	}
+}
+
+func TestHandleBlob_Success(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	rr := apiRequest(srv, fmt.Sprintf("/api/blob?branch=main&sha=%s&path=src/main.go", shaMain))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /api/blob status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/") {
+		t.Fatalf("expected text/ content type, got %s", ct)
+	}
+}
+
+func TestHandleBlob_InvalidSHA(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	rr := apiRequest(srv, "/api/blob?branch=main&sha=invalid&path=src/main.go")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/blob status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleBlob_MissingSHA(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	rr := apiRequest(srv, "/api/blob?branch=main&path=src/main.go")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("GET /api/blob status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestRequireToken_InvalidToken(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tree?branch=main", nil)
+	req.Header.Set("X-Relay-Token", "wrong-token")
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid token, got %d", rr.Code)
+	}
+}
+
+func TestRequireToken_MissingToken(t *testing.T) {
+	tree := testTree()
+	srv, _ := newTestServer(t, nil, tree)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tree?branch=main", nil)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing token, got %d", rr.Code)
+	}
+}
+
+func TestIsSafeSHA(t *testing.T) {
+	tests := []struct {
+		name     string
+		sha      string
+		expected bool
+	}{
+		{"valid 40 char hex", "abc123def7890123456789012345678901234567", true},
+		{"too short", "abc123", false},
+		{"invalid chars", "gh-relay-is-cool", false},
+		{"uppercase hex", "ABC123DEF7890123456789012345678901234567", true},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSafeSHA(tt.sha)
+			if result != tt.expected {
+				t.Errorf("isSafeSHA(%q) = %v, want %v", tt.sha, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsSafeBranchName(t *testing.T) {
+	tests := []struct {
+		name     string
+		branch   string
+		expected bool
+	}{
+		{"valid simple", "main", true},
+		{"valid feature", "feature/new-auth", true},
+		{"valid with numbers", "feature/auth-2fa", true},
+		{"valid release tag", "v1.2.3", true},
+		{"valid double dots", "feature..auth", true},
+		{"valid tilde", "feature~auth", true},
+		{"invalid caret", "feature^auth", false},
+		{"invalid colon", "feature:auth", false},
+		{"invalid question", "feature?auth", false},
+		{"invalid bracket", "feature[auth", false},
+		{"invalid space", "feature auth", false},
+		{"invalid backslash", "feature\\auth", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSafeBranchName(tt.branch)
+			if result != tt.expected {
+				t.Errorf("isSafeBranchName(%q) = %v, want %v", tt.branch, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBlobContentType(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		check    func(t *testing.T, result string)
+	}{
+		{"go file", "main.go", textMimeCheck},
+		{"js file", "app.js", textMimeCheck},
+		{"ts file", "app.ts", textOrVideoMimeCheck},
+		{"json file", "config.json", jsonMimeCheck},
+		{"yaml file", "config.yaml", yamlMimeCheck},
+		{"md file", "README.md", textMimeCheck},
+		{"html file", "index.html", textMimeCheck},
+		{"css file", "style.css", textMimeCheck},
+		{"png file", "image.png", imageMimeCheck},
+		{"unknown ext", "file.xyz", fallbackMimeCheck},
+		{"no ext", "Makefile", textMimeCheck},
+		{"zip file", "archive.zip", binaryMimeCheck},
+		{"pdf file", "doc.pdf", binaryMimeCheck},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := blobContentType(tt.path)
+			tt.check(t, result)
+		})
+	}
+}
+
+func textMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "text/") && result != "application/json" {
+		t.Errorf("expected text MIME type, got %q", result)
+	}
+}
+
+func jsonMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "application/json") {
+		t.Errorf("expected application/json MIME type, got %q", result)
+	}
+}
+
+func imageMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "image/") {
+		t.Errorf("expected image MIME type, got %q", result)
+	}
+}
+
+func binaryMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "application/") {
+		t.Errorf("expected application MIME type, got %q", result)
+	}
+}
+
+func textOrVideoMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "text/") && !strings.HasPrefix(result, "video/") {
+		t.Errorf("expected text/ or video/ MIME type, got %q", result)
+	}
+}
+
+func yamlMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "text/") && !strings.HasPrefix(result, "application/") {
+		t.Errorf("expected text/ or application/ MIME type, got %q", result)
+	}
+}
+
+func fallbackMimeCheck(t *testing.T, result string) {
+	if result == "" {
+		t.Error("expected non-empty MIME type")
+	}
+}
+
+func TestAuditLog_AddAndSummary(t *testing.T) {
+	al := &AuditLog{}
+
+	al.add(AuditRecord{
+		timestamp: time.Now(),
+		endpoint:  "/api/blob",
+		filePath:  "src/main.go",
+		branch:    "main",
+		ipAddress: "192.168.1.1",
+	})
+	al.add(AuditRecord{
+		timestamp: time.Now().Add(time.Second),
+		endpoint:  "/api/tree",
+		branch:    "main",
+		ipAddress: "192.168.1.1",
+	})
+	al.add(AuditRecord{
+		timestamp: time.Now().Add(2 * time.Second),
+		endpoint:  "/api/blob",
+		filePath:  "src/main.go",
+		branch:    "main",
+		ipAddress: "192.168.1.1",
+	})
+
+	var buf strings.Builder
+	logger := log.New(&buf, "", 0)
+	al.Summary(logger)
+
+	output := buf.String()
+	if !strings.Contains(output, "Files viewed") {
+		t.Error("expected audit summary to contain 'Files viewed'")
+	}
+	if !strings.Contains(output, "Total requests") {
+		t.Error("expected audit summary to contain 'Total requests'")
+	}
+}
+
+func TestAuditLog_EmptySummary(t *testing.T) {
+	al := &AuditLog{}
+
+	var buf strings.Builder
+	logger := log.New(&buf, "", 0)
+	al.Summary(logger)
+
+	output := buf.String()
+	if !strings.Contains(output, "No guest activity") {
+		t.Error("expected empty audit summary to contain 'No guest activity'")
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    time.Duration
+		expected string
+	}{
+		{"seconds", 45 * time.Second, "45s"},
+		{"minutes", 2 * time.Minute, "2m0s"},
+		{"hours", 1 * time.Hour, "1h0m0s"},
+		{"complex", 1*time.Hour + 30*time.Minute + 15*time.Second, "1h30m15s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDuration(tt.input)
+			if result != tt.expected {
+				t.Errorf("formatDuration(%v) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
 }

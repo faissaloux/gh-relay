@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -46,28 +47,10 @@ func isSafeBranchName(name string) bool {
 
 func blobContentType(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".png":
-		return "image/png"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".svg":
-		return "image/svg+xml"
-	case ".ico":
-		return "image/x-icon"
-	case ".pdf":
-		return "application/pdf"
-	case ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-		".exe", ".bin", ".dll", ".so", ".dylib",
-		".wasm", ".pyc", ".pyo", ".class":
-		return "application/octet-stream"
-	default:
-		return "text/plain; charset=utf-8"
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		return ct
 	}
+	return "text/plain; charset=utf-8"
 }
 
 func getClientIP(r *http.Request) string {
