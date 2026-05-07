@@ -276,7 +276,7 @@ function renderTree(entries) {
       var row = document.createElement('div');
       row.className = 'tree-file' + (state.activeFile === e.path ? ' active' : '');
       row.style.paddingLeft = '12px';
-      row.innerHTML = '<span class="tree-icon">' + fileIcon(e.path) + '</span><span class="tree-name" title="' + e.path + '">' + e.path + '</span>';
+      row.innerHTML = '<span class="tree-icon">' + fileIcon(e.path) + '</span><span class="tree-name" title="' + escHtml(e.path) + '">' + escHtml(e.path) + '</span>';
       row.addEventListener('click', function() { openFile(e); });
       container.appendChild(row);
     });
@@ -339,7 +339,7 @@ function renderTree(entries) {
         file.className = 'tree-file' + (state.activeFile === entry.path ? ' active' : '');
         file.style.paddingLeft = pl;
         file.dataset.path = entry.path;
-        file.innerHTML = '<span class="tree-icon">' + fileIcon(entry.path) + '</span><span class="tree-name" title="' + entry.path + '">' + key + '</span>';
+        file.innerHTML = '<span class="tree-icon">' + fileIcon(entry.path) + '</span><span class="tree-name" title="' + escHtml(entry.path) + '">' + escHtml(key) + '</span>';
         file.addEventListener('click', function() { openFile(entry); });
         frag.appendChild(file);
       }
