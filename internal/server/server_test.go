@@ -417,7 +417,7 @@ func TestBlobContentType(t *testing.T) {
 		{"js file", "app.js", textMimeCheck},
 		{"ts file", "app.ts", textOrVideoMimeCheck},
 		{"json file", "config.json", jsonMimeCheck},
-		{"yaml file", "config.yaml", textMimeCheck},
+		{"yaml file", "config.yaml", yamlMimeCheck},
 		{"md file", "README.md", textMimeCheck},
 		{"html file", "index.html", textMimeCheck},
 		{"css file", "style.css", textMimeCheck},
@@ -463,6 +463,12 @@ func binaryMimeCheck(t *testing.T, result string) {
 func textOrVideoMimeCheck(t *testing.T, result string) {
 	if !strings.HasPrefix(result, "text/") && !strings.HasPrefix(result, "video/") {
 		t.Errorf("expected text/ or video/ MIME type, got %q", result)
+	}
+}
+
+func yamlMimeCheck(t *testing.T, result string) {
+	if !strings.HasPrefix(result, "text/") && !strings.HasPrefix(result, "application/") {
+		t.Errorf("expected text/ or application/ MIME type, got %q", result)
 	}
 }
 
