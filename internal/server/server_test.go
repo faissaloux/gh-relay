@@ -413,17 +413,17 @@ func TestBlobContentType(t *testing.T) {
 		expected string
 	}{
 		{"go file", "main.go", "text/plain; charset=utf-8"},
-		{"js file", "app.js", "text/plain; charset=utf-8"},
-		{"ts file", "app.ts", "text/plain; charset=utf-8"},
-		{"json file", "config.json", "text/plain; charset=utf-8"},
+		{"js file", "app.js", "text/javascript; charset=utf-8"},
+		{"ts file", "app.ts", "video/mp2t"},
+		{"json file", "config.json", "application/json"},
 		{"yaml file", "config.yaml", "text/plain; charset=utf-8"},
 		{"md file", "README.md", "text/plain; charset=utf-8"},
-		{"html file", "index.html", "text/plain; charset=utf-8"},
-		{"css file", "style.css", "text/plain; charset=utf-8"},
+		{"html file", "index.html", "text/html; charset=utf-8"},
+		{"css file", "style.css", "text/css; charset=utf-8"},
 		{"png file", "image.png", "image/png"},
-		{"unknown ext", "file.xyz", "text/plain; charset=utf-8"},
+		{"unknown ext", "file.xyz", "chemical/x-xyz"},
 		{"no ext", "Makefile", "text/plain; charset=utf-8"},
-		{"zip file", "archive.zip", "application/octet-stream"},
+		{"zip file", "archive.zip", "application/zip"},
 		{"pdf file", "doc.pdf", "application/pdf"},
 	}
 
