@@ -67,3 +67,97 @@ func (f *secretPreflightFakeGitHub) GetBlob(_ context.Context, _, _, sha string)
 	f.getBlobCalls++
 	return nil, fmt.Errorf("denied blob %s should not be fetched", sha)
 }
+
+func TestValidateShareFlags_Valid(t *testing.T) {
+	f := shareFlags{
+		token:  "ghp_testtoken123",
+		repo:   "owner/repo",
+		port:   8080,
+		branch: "main",
+	}
+	err := ValidateShareFlags(f)
+	if err != nil {
+		t.Fatalf("ValidateShareFlags() error = %v", err)
+	}
+}
+
+func TestValidateShareFlags_MissingToken(t *testing.T) {
+	f := shareFlags{
+		token: "",
+		repo:  "owner/repo",
+	}
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for missing token")
+	}
+}
+
+func TestValidateShareFlags_MissingRepo(t *testing.T) {
+	f := shareFlags{
+		token: "ghp_testtoken",
+		repo:  "",
+	}
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for missing repo")
+	}
+}
+
+func TestValidateShareFlags_InvalidPort_TooLow(t *testing.T) {
+	f := shareFlags{
+		token: "ghp_testtoken",
+		repo:  "owner/repo",
+		port:  0,
+	}
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for port 0")
+	}
+}
+
+func TestValidateShareFlags_InvalidPort_TooHigh(t *testing.T) {
+	f := shareFlags{
+		token: "ghp_testtoken",
+		repo:  "owner/repo",
+		port:  70000,
+	}
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for port > 65535")
+	}
+}
+
+func TestValidateShareFlags_InvalidAllowPattern(t *testing.T) {
+	f := shareFlags{
+		token: "ghp_testtoken",
+		repo:  "owner/repo",
+		allow: "../secret",
+	}
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for invalid allow pattern")
+	}
+}
+
+func TestValidateShareFlags_ValidPortBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+	}{
+		{"min valid", 1},
+		{"max valid", 65535},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := shareFlags{
+				token: "ghp_testtoken",
+				repo:  "owner/repo",
+				port:  tt.port,
+			}
+			err := ValidateShareFlags(f)
+			if err != nil {
+				t.Fatalf("ValidateShareFlags() error = %v", err)
+			}
+		})
+	}
+}
