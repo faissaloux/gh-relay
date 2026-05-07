@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -343,6 +344,21 @@ func startServer(ctx context.Context, cfg server.Config) chan error {
 		}
 	}()
 
-	time.Sleep(150 * time.Millisecond)
+	if err := waitForServer(fmt.Sprintf("http://localhost:%d/v1/health", cfg.Port), 2*time.Second); err != nil {
+		log.Printf("Warning: server health check failed, proceeding anyway: %v", err)
+	}
 	return serverErr
+}
+
+func waitForServer(url string, timeout time.Duration) error {
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("server did not become ready within %s", timeout)
 }
