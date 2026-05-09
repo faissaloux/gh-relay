@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +15,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+)
+
+const (
+	unlockMaxBodyBytes     = 1024
+	unlockMaxPasscodeBytes = 128
+	unlockMinPasscodeBytes = 1
 )
 
 func New(cfg Config) *Server {
@@ -125,8 +132,18 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Passcode string `json:"passcode"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, unlockMaxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if len(req.Passcode) < unlockMinPasscodeBytes || len(req.Passcode) > unlockMaxPasscodeBytes {
+		http.Error(w, "invalid passcode length", http.StatusBadRequest)
 		return
 	}
 

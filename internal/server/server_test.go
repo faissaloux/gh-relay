@@ -146,6 +146,24 @@ func TestUnlockRejectsWrongPasscode(t *testing.T) {
 	}
 }
 
+func TestUnlockRejectsOversizedBody(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	rr := unlockRequest(srv, `{"passcode":"`+strings.Repeat("A", 2048)+`"}`)
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("POST /api/unlock status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestUnlockRejectsTooLongPasscode(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	rr := unlockRequest(srv, `{"passcode":"`+strings.Repeat("A", 129)+`"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/unlock status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
 func TestUnlockRateLimitsRepeatedFailures(t *testing.T) {
 	srv, _ := newTestServerWithPasscode(t, "483920")
 
