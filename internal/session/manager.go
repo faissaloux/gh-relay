@@ -30,7 +30,11 @@ func (m *Manager) Issue() (string, error) {
 	token := hex.EncodeToString(raw)
 
 	m.mu.Lock()
-	m.tokens[token] = time.Now().Add(m.ttl)
+	var expiry time.Time
+	if m.ttl > 0 {
+		expiry = time.Now().Add(m.ttl)
+	}
+	m.tokens[token] = expiry
 	m.mu.Unlock()
 
 	return token, nil
@@ -44,7 +48,7 @@ func (m *Manager) Valid(token string) bool {
 	m.mu.RLock()
 	expiry, ok := m.tokens[token]
 	m.mu.RUnlock()
-	return ok && time.Now().Before(expiry)
+	return ok && (expiry.IsZero() || time.Now().Before(expiry))
 }
 
 func (m *Manager) Revoke(token string) {
@@ -59,7 +63,7 @@ func (m *Manager) Count() int {
 	n := 0
 	now := time.Now()
 	for _, exp := range m.tokens {
-		if now.Before(exp) {
+		if exp.IsZero() || now.Before(exp) {
 			n++
 		}
 	}
@@ -78,7 +82,7 @@ func (m *Manager) reap(done <-chan struct{}) {
 			m.mu.Lock()
 			now := time.Now()
 			for tok, exp := range m.tokens {
-				if now.After(exp) {
+				if !exp.IsZero() && now.After(exp) {
 					delete(m.tokens, tok)
 				}
 			}

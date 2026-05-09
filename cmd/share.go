@@ -101,7 +101,7 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 	}
 
 	done := ctx.Done()
-	sessionTTL := 24 * time.Hour
+	sessionTTL := time.Duration(0)
 	if f.expire > 0 {
 		sessionTTL = f.expire
 	}

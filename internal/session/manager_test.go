@@ -118,6 +118,37 @@ func TestManager_Valid_ExpiredToken(t *testing.T) {
 	}
 }
 
+func TestManager_Valid_NonExpiringToken(t *testing.T) {
+	done := make(chan struct{})
+	defer close(done)
+
+	m := NewManager(0, done)
+
+	token, _ := m.Issue()
+
+	time.Sleep(time.Millisecond)
+
+	if !m.Valid(token) {
+		t.Fatal("expected zero TTL token to remain valid until revoked or shutdown")
+	}
+}
+
+func TestManager_Count_IncludesNonExpiringTokens(t *testing.T) {
+	done := make(chan struct{})
+	defer close(done)
+
+	m := NewManager(0, done)
+
+	m.Issue()
+	m.Issue()
+
+	time.Sleep(time.Millisecond)
+
+	if m.Count() != 2 {
+		t.Fatalf("expected 2 active non-expiring tokens, got %d", m.Count())
+	}
+}
+
 func TestManager_Count_ExcludesExpired(t *testing.T) {
 	done := make(chan struct{})
 	defer close(done)
