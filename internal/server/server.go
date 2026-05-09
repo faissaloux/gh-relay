@@ -4,6 +4,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -15,14 +18,20 @@ import (
 
 func New(cfg Config) *Server {
 	s := &Server{cfg: cfg, mux: http.NewServeMux()}
-	tok, _ := cfg.Sessions.Issue()
-	injected := strings.Replace(spaHTML, "/*__RELAY_TOKEN__*/", `var __RELAY_TOKEN__ = "`+tok+`";`, 1)
+	injected := spaHTML
+	if cfg.Passcode == "" {
+		tok, _ := cfg.Sessions.Issue()
+		injected = strings.Replace(injected, "/*__RELAY_TOKEN__*/", `var __RELAY_TOKEN__ = "`+tok+`";`, 1)
+		s.token = tok
+	} else {
+		injected = strings.Replace(injected, "/*__RELAY_TOKEN__*/", `var __RELAY_TOKEN__ = ""; var __RELAY_PASSCODE_REQUIRED__ = true;`, 1)
+		s.unlocks = newUnlockLimiter()
+	}
 	if cfg.AllowDownload {
 		injected = strings.Replace(injected, "/*__ALLOW_DOWNLOAD__*/", `var __ALLOW_DOWNLOAD__ = true;`, 1)
 	}
 	rendered := []byte(injected)
 	s.renderedSPA = rendered
-	s.token = tok
 	s.registerRoutes()
 	var handler http.Handler = s.mux
 	if cfg.AuditLog != nil {
@@ -72,6 +81,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/tree", s.requireToken(s.handleTree))
 	s.mux.HandleFunc("/api/blob", s.requireToken(s.handleBlob))
 	s.mux.HandleFunc("/api/commits", s.requireToken(s.handleCommits))
+	if s.cfg.Passcode != "" {
+		s.mux.HandleFunc("/api/unlock", s.handleUnlock)
+	}
 
 	if s.cfg.AllowDownload {
 		s.mux.HandleFunc("/api/download", s.requireToken(s.handleDownload))
@@ -87,7 +99,7 @@ func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		tok := r.Header.Get("X-Relay-Token")
-		if tok == "" || tok != s.token {
+		if tok == "" || s.cfg.Sessions == nil || !s.cfg.Sessions.Valid(tok) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"invalid or expired session"}`))
@@ -95,6 +107,54 @@ func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	clientIP := getClientIP(r)
+	if !s.unlocks.allow(clientIP) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"error":"too many unlock attempts"}`))
+		return
+	}
+
+	var req struct {
+		Passcode string `json:"passcode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	if !passcodeMatches(req.Passcode, s.cfg.Passcode) {
+		s.unlocks.recordFailure(clientIP)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid passcode"}`))
+		return
+	}
+	s.unlocks.reset(clientIP)
+
+	token, err := s.cfg.Sessions.Issue()
+	if err != nil {
+		log.Printf("[error] issuing relay token: %v", err)
+		http.Error(w, "could not issue session", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, struct {
+		Token string `json:"token"`
+	}{Token: token})
+}
+
+func passcodeMatches(got, want string) bool {
+	gotHash := sha256.Sum256([]byte(got))
+	wantHash := sha256.Sum256([]byte(want))
+	return subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) == 1
 }
 
 func (s *Server) auditMiddleware(next http.Handler) http.Handler {

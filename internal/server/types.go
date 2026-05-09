@@ -29,7 +29,8 @@ type Config struct {
 	Tree          *github.Tree
 	AuditLog      *AuditLog
 	AllowDownload bool
-	PathFilter *filter.Policy
+	PathFilter    *filter.Policy
+	Passcode      string
 }
 
 // Server is the gh-relay HTTP server.
@@ -39,4 +40,5 @@ type Server struct {
 	srv         *http.Server
 	token       string
 	renderedSPA []byte
+	unlocks     *unlockLimiter
 }

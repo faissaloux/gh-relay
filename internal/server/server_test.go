@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -112,7 +113,109 @@ func TestBlobRequiresPathAndBranchWhenFiltered(t *testing.T) {
 	}
 }
 
+func TestUnlockIssuesTokenThatCanAccessAPIs(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	rr := unlockRequest(srv, `{"passcode":"483920"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST /api/unlock status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decoding unlock response: %v", err)
+	}
+	if resp.Token == "" {
+		t.Fatal("expected unlock response to include token")
+	}
+
+	info := apiRequestWithToken(srv, "/api/info", resp.Token)
+	if info.Code != http.StatusOK {
+		t.Fatalf("GET /api/info status = %d, want %d: %s", info.Code, http.StatusOK, info.Body.String())
+	}
+}
+
+func TestUnlockRejectsWrongPasscode(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	rr := unlockRequest(srv, `{"passcode":"000000"}`)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("POST /api/unlock status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestUnlockRateLimitsRepeatedFailures(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	for i := 0; i < 5; i++ {
+		rr := unlockRequest(srv, `{"passcode":"000000"}`)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		}
+	}
+
+	rr := unlockRequest(srv, `{"passcode":"000000"}`)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("sixth failure status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestUnlockRejectsGet(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/unlock", nil)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/unlock status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestPasscodeRequiredAPIRejectsInitialToken(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	rr := apiRequestWithToken(srv, "/api/info", srv.token)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/info status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestPasscodeRequiredSPARendersUnlockGateWithoutToken(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `id="unlock-panel"`) {
+		t.Fatal("expected passcode-protected SPA to render unlock panel")
+	}
+	if strings.Contains(body, `var __RELAY_TOKEN__ = "483920"`) {
+		t.Fatal("SPA exposed passcode as relay token")
+	}
+	if !strings.Contains(body, `var __RELAY_TOKEN__ = ""`) {
+		t.Fatal("expected passcode-protected SPA to start without relay token")
+	}
+}
+
 func newTestServer(t *testing.T, policy *filter.Policy, tree *github.Tree) (*Server, *fakeGitHub) {
+	t.Helper()
+	return newTestServerWithConfig(t, policy, tree, Config{})
+}
+
+func newTestServerWithPasscode(t *testing.T, passcode string) (*Server, *fakeGitHub) {
+	t.Helper()
+	return newTestServerWithConfig(t, nil, testTree(), Config{Passcode: passcode})
+}
+
+func newTestServerWithConfig(t *testing.T, policy *filter.Policy, tree *github.Tree, extra Config) (*Server, *fakeGitHub) {
 	t.Helper()
 	done := make(chan struct{})
 	t.Cleanup(func() { close(done) })
@@ -126,7 +229,7 @@ func newTestServer(t *testing.T, policy *filter.Policy, tree *github.Tree) (*Ser
 			shaSecret: []byte("secret\n"),
 		},
 	}
-	srv := New(Config{
+	cfg := Config{
 		Owner:      "owner",
 		Repo:       "repo",
 		Branch:     "main",
@@ -136,13 +239,31 @@ func newTestServer(t *testing.T, policy *filter.Policy, tree *github.Tree) (*Ser
 		Sessions:   session.NewManager(time.Hour, done),
 		Tree:       tree,
 		PathFilter: policy,
-	})
+	}
+	if extra.Passcode != "" {
+		cfg.Passcode = extra.Passcode
+	}
+	srv := New(cfg)
 	return srv, fake
 }
 
 func apiRequest(srv *Server, target string) *httptest.ResponseRecorder {
+	return apiRequestWithToken(srv, target, srv.token)
+}
+
+func apiRequestWithToken(srv *Server, target, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, target, nil)
-	req.Header.Set("X-Relay-Token", srv.token)
+	if token != "" {
+		req.Header.Set("X-Relay-Token", token)
+	}
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func unlockRequest(srv *Server, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/unlock", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.srv.Handler.ServeHTTP(rr, req)
 	return rr
@@ -243,9 +364,9 @@ func TestHandleInfo(t *testing.T) {
 	}
 
 	var info struct {
-		Owner   string   `json:"owner"`
-		Repo    string   `json:"repo"`
-		Branch  string   `json:"branch"`
+		Owner    string   `json:"owner"`
+		Repo     string   `json:"repo"`
+		Branch   string   `json:"branch"`
 		Branches []string `json:"branches"`
 	}
 	if err := json.NewDecoder(rr.Body).Decode(&info); err != nil {
@@ -409,9 +530,9 @@ func TestIsSafeBranchName(t *testing.T) {
 
 func TestBlobContentType(t *testing.T) {
 	tests := []struct {
-		name     string
-		path     string
-		check    func(t *testing.T, result string)
+		name  string
+		path  string
+		check func(t *testing.T, result string)
 	}{
 		{"go file", "main.go", textMimeCheck},
 		{"js file", "app.js", textMimeCheck},

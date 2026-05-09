@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"testing"
 	"time"
 
@@ -205,6 +207,92 @@ func TestSecretScanEntries(t *testing.T) {
 	if result[0].Type != "blob" {
 		t.Errorf("expected type 'blob', got %q", result[0].Type)
 	}
+}
+
+func TestShareFlags_PasscodeDisabledByDefault(t *testing.T) {
+	f := parseTestShareFlags(t, "--token", "ghp_testtoken", "--repo", "owner/repo")
+
+	if f.passcode.enabled {
+		t.Fatal("expected passcode to be disabled by default")
+	}
+}
+
+func TestShareFlags_BarePasscodeRequestsGeneratedCode(t *testing.T) {
+	f := parseTestShareFlags(t, "--token", "ghp_testtoken", "--repo", "owner/repo", "--passcode")
+
+	if !f.passcode.enabled {
+		t.Fatal("expected bare --passcode to enable passcode gate")
+	}
+	if f.passcode.code != "" {
+		t.Fatalf("expected bare --passcode to leave code empty for generation, got %q", f.passcode.code)
+	}
+}
+
+func TestShareFlags_PasscodeExplicitCode(t *testing.T) {
+	f := parseTestShareFlags(t, "--token", "ghp_testtoken", "--repo", "owner/repo", "--passcode=review-483920")
+
+	if !f.passcode.enabled {
+		t.Fatal("expected --passcode=value to enable passcode gate")
+	}
+	if f.passcode.code != "review-483920" {
+		t.Fatalf("expected explicit passcode %q, got %q", "review-483920", f.passcode.code)
+	}
+}
+
+func TestValidateShareFlags_PasscodeRejectsShortExplicitCode(t *testing.T) {
+	f := shareFlags{
+		token:    "ghp_testtoken",
+		repo:     "owner/repo",
+		port:     8080,
+		passcode: passcodeConfig{enabled: true, code: "123"},
+	}
+
+	err := ValidateShareFlags(f)
+	if err == nil {
+		t.Fatal("expected error for short explicit passcode")
+	}
+}
+
+func TestResolvePasscodeDisabled(t *testing.T) {
+	code, err := resolvePasscode(shareFlags{})
+	if err != nil {
+		t.Fatalf("resolvePasscode() error = %v", err)
+	}
+	if code != "" {
+		t.Fatalf("expected empty passcode when disabled, got %q", code)
+	}
+}
+
+func TestResolvePasscodeUsesExplicitCode(t *testing.T) {
+	code, err := resolvePasscode(shareFlags{passcode: passcodeConfig{enabled: true, code: "review-483920"}})
+	if err != nil {
+		t.Fatalf("resolvePasscode() error = %v", err)
+	}
+	if code != "review-483920" {
+		t.Fatalf("expected explicit passcode, got %q", code)
+	}
+}
+
+func TestResolvePasscodeGeneratesSixDigitCode(t *testing.T) {
+	code, err := resolvePasscode(shareFlags{passcode: passcodeConfig{enabled: true}})
+	if err != nil {
+		t.Fatalf("resolvePasscode() error = %v", err)
+	}
+	if !regexp.MustCompile(`^\d{6}$`).MatchString(code) {
+		t.Fatalf("expected six-digit generated passcode, got %q", code)
+	}
+}
+
+func parseTestShareFlags(t *testing.T, args ...string) shareFlags {
+	t.Helper()
+
+	fs := flag.NewFlagSet("share", flag.ContinueOnError)
+	var f shareFlags
+	registerShareFlags(fs, &f)
+	if err := fs.Parse(args); err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	return f
 }
 
 func TestWaitForServer_Timeout(t *testing.T) {

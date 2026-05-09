@@ -101,6 +101,17 @@ var spaHTML = `<!DOCTYPE html>
   .commit-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .commit-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   #commits-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; }
+  #unlock-panel { display: none; min-height: 100%; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+  body.locked #unlock-panel { display: flex; }
+  body.locked #app { display: none; }
+  .unlock-box { width: 100%; max-width: 360px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .unlock-box h1 { font-size: 18px; line-height: 1.3; margin-bottom: 8px; }
+  .unlock-box p { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+  #unlock-code { width: 100%; background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 9px 10px; font-size: 16px; font-family: var(--font-mono); }
+  #unlock-code:focus { outline: 2px solid var(--accent); }
+  #unlock-submit { width: 100%; margin-top: 12px; background: var(--accent); color: #06101f; border: 0; border-radius: var(--radius); padding: 9px 10px; font-weight: 700; cursor: pointer; }
+  #unlock-submit:disabled { cursor: wait; opacity: 0.75; }
+  #unlock-error { min-height: 18px; margin-top: 10px; color: var(--danger); font-size: 13px; }
 
   @media (max-width: 640px) { :root { --tree-w: 220px; } }
 </style>
@@ -108,6 +119,15 @@ var spaHTML = `<!DOCTYPE html>
 <script>/*__ALLOW_DOWNLOAD__*/</script>
 </head>
 <body>
+<div id="unlock-panel">
+  <form id="unlock-form" class="unlock-box">
+    <h1>Access code required</h1>
+    <p>Enter the code shared by the session owner.</p>
+    <input id="unlock-code" name="passcode" type="password" autocomplete="one-time-code" inputmode="text" spellcheck="false" autofocus>
+    <button id="unlock-submit" type="submit">Unlock</button>
+    <div id="unlock-error" role="alert"></div>
+  </form>
+</div>
 <div id="app">
   <header id="header">
     <span class="logo">gh-relay</span>&nbsp;version: ` + version.Version + `&nbsp;|&nbsp;<small>by <a href="https://github.com/soub4i" target="_blank" style="color:var(--accent)">soub4i</a></small>
@@ -164,6 +184,8 @@ var spaHTML = `<!DOCTYPE html>
 hljs.configure({ ignoreUnescapedHTML: true });
 
 var state = { info: null, tree: null, activeFile: null, filterText: '' };
+var relayToken = __RELAY_TOKEN__;
+var passcodeRequired = typeof __RELAY_PASSCODE_REQUIRED__ !== 'undefined' && __RELAY_PASSCODE_REQUIRED__;
 
 function $(id) { return document.getElementById(id); }
 
@@ -176,7 +198,7 @@ function showToast(msg) {
 
 function api(path) {
   return fetch(path, {
-    headers: { 'X-Relay-Token': __RELAY_TOKEN__ }
+    headers: { 'X-Relay-Token': relayToken }
   }).then(function(r) {
     if (r.status === 401) {
       document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#f85149">Session expired, please reload the page.</div>';
@@ -185,6 +207,20 @@ function api(path) {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' from ' + path);
     return r;
   });
+}
+
+async function unlock(passcode) {
+  var resp = await fetch('/api/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode: passcode })
+  });
+  if (resp.status === 401) throw new Error('Invalid access code.');
+  if (resp.status === 429) throw new Error('Too many attempts. Try again later.');
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from /api/unlock');
+  var data = await resp.json();
+  if (!data.token) throw new Error('Unlock response did not include a token.');
+  relayToken = data.token;
 }
 
 async function boot() {
@@ -480,14 +516,37 @@ async function openCommits() {
   }
 }
 
-$('commits-close').addEventListener('click', function() { $('commits-overlay').classList.remove('show'); });
-$('commits-overlay').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
-$('search-input').addEventListener('input', function() {
-  state.filterText = this.value;
-  if (state.tree) renderTree(state.tree);
-});
+function startApp() {
+  $('commits-close').addEventListener('click', function() { $('commits-overlay').classList.remove('show'); });
+  $('commits-overlay').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+  $('search-input').addEventListener('input', function() {
+    state.filterText = this.value;
+    if (state.tree) renderTree(state.tree);
+  });
+  boot().catch(function(e) { showToast('Boot error: ' + e.message); });
+}
 
-boot().catch(function(e) { showToast('Boot error: ' + e.message); });
+if (passcodeRequired) {
+  document.body.classList.add('locked');
+  $('unlock-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var submit = $('unlock-submit');
+    var error = $('unlock-error');
+    submit.disabled = true;
+    error.textContent = '';
+    try {
+      await unlock($('unlock-code').value);
+      document.body.classList.remove('locked');
+      startApp();
+    } catch(err) {
+      error.textContent = err.message;
+      $('unlock-code').focus();
+    }
+    submit.disabled = false;
+  });
+} else {
+  startApp();
+}
 </script>
 </body>
 </html>`
