@@ -7,12 +7,14 @@ import (
 
 const (
 	unlockFailureLimit  = 5
+	unlockGlobalLimit   = 25
 	unlockFailureWindow = 5 * time.Minute
 )
 
 type unlockLimiter struct {
 	mu       sync.Mutex
 	failures map[string]unlockFailure
+	global   unlockFailure
 	now      func() time.Time
 }
 
@@ -28,39 +30,43 @@ func newUnlockLimiter() *unlockLimiter {
 	}
 }
 
-func (l *unlockLimiter) allow(key string) bool {
+func (l *unlockLimiter) blocked(key string) bool {
 	if l == nil {
-		return true
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	failure, ok := l.failures[key]
-	if !ok {
-		return true
-	}
-	if l.now().Sub(failure.first) > unlockFailureWindow {
-		delete(l.failures, key)
-		return true
-	}
-	return failure.count < unlockFailureLimit
-}
-
-func (l *unlockLimiter) recordFailure(key string) {
-	if l == nil {
-		return
+		return false
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
-	failure, ok := l.failures[key]
-	if !ok || now.Sub(failure.first) > unlockFailureWindow {
-		l.failures[key] = unlockFailure{count: 1, first: now}
-		return
+	l.pruneLocked(now)
+	return l.failures[key].count >= unlockFailureLimit || l.global.count >= unlockGlobalLimit
+}
+
+func (l *unlockLimiter) recordFailure(key string) bool {
+	if l == nil {
+		return true
 	}
-	failure.count++
-	l.failures[key] = failure
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := l.now()
+	l.pruneLocked(now)
+	if l.failures[key].count >= unlockFailureLimit || l.global.count >= unlockGlobalLimit {
+		return false
+	}
+
+	keyFailure := l.failures[key]
+	if keyFailure.first.IsZero() {
+		keyFailure.first = now
+	}
+	keyFailure.count++
+	l.failures[key] = keyFailure
+
+	if l.global.first.IsZero() {
+		l.global.first = now
+	}
+	l.global.count++
+	return true
 }
 
 func (l *unlockLimiter) reset(key string) {
@@ -70,4 +76,15 @@ func (l *unlockLimiter) reset(key string) {
 	l.mu.Lock()
 	delete(l.failures, key)
 	l.mu.Unlock()
+}
+
+func (l *unlockLimiter) pruneLocked(now time.Time) {
+	for key, failure := range l.failures {
+		if now.Sub(failure.first) > unlockFailureWindow {
+			delete(l.failures, key)
+		}
+	}
+	if !l.global.first.IsZero() && now.Sub(l.global.first) > unlockFailureWindow {
+		l.global = unlockFailure{}
+	}
 }

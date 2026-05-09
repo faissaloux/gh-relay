@@ -114,8 +114,8 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	clientIP := getClientIP(r)
-	if !s.unlocks.allow(clientIP) {
+	limitKey := unlockRateLimitKey(r)
+	if s.unlocks.blocked(limitKey) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		w.Write([]byte(`{"error":"too many unlock attempts"}`))
@@ -131,13 +131,18 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !passcodeMatches(req.Passcode, s.cfg.Passcode) {
-		s.unlocks.recordFailure(clientIP)
+		if !s.unlocks.recordFailure(limitKey) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"too many unlock attempts"}`))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"error":"invalid passcode"}`))
 		return
 	}
-	s.unlocks.reset(clientIP)
+	s.unlocks.reset(limitKey)
 
 	token, err := s.cfg.Sessions.Issue()
 	if err != nil {
@@ -155,6 +160,24 @@ func passcodeMatches(got, want string) bool {
 	gotHash := sha256.Sum256([]byte(got))
 	wantHash := sha256.Sum256([]byte(want))
 	return subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) == 1
+}
+
+func unlockRateLimitKey(r *http.Request) string {
+	host := remoteAddrHost(r.RemoteAddr)
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		if cfIP := net.ParseIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); cfIP != nil {
+			return "cf:" + cfIP.String()
+		}
+	}
+	return "remote:" + host
+}
+
+func remoteAddrHost(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 func (s *Server) auditMiddleware(next http.Handler) http.Handler {

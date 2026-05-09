@@ -162,6 +162,42 @@ func TestUnlockRateLimitsRepeatedFailures(t *testing.T) {
 	}
 }
 
+func TestUnlockRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	for i := 0; i < 5; i++ {
+		rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, "203.0.113.10:5000", map[string]string{
+			"X-Forwarded-For": fmt.Sprintf("198.51.100.%d", i+1),
+		})
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		}
+	}
+
+	rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, "203.0.113.10:5000", map[string]string{
+		"X-Forwarded-For": "198.51.100.99",
+	})
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("spoofed forwarded-for bypass status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestUnlockRateLimitNormalizesRemoteAddrPort(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	for i := 0; i < 5; i++ {
+		rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, fmt.Sprintf("203.0.113.20:%d", 5000+i), nil)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		}
+	}
+
+	rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, "203.0.113.20:6000", nil)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("changed remote port status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+}
+
 func TestUnlockRejectsGet(t *testing.T) {
 	srv, _ := newTestServerWithPasscode(t, "483920")
 
@@ -262,8 +298,18 @@ func apiRequestWithToken(srv *Server, target, token string) *httptest.ResponseRe
 }
 
 func unlockRequest(srv *Server, body string) *httptest.ResponseRecorder {
+	return unlockRequestFrom(srv, body, "", nil)
+}
+
+func unlockRequestFrom(srv *Server, body, remoteAddr string, headers map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/api/unlock", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	if remoteAddr != "" {
+		req.RemoteAddr = remoteAddr
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	rr := httptest.NewRecorder()
 	srv.srv.Handler.ServeHTTP(rr, req)
 	return rr
