@@ -105,6 +105,7 @@ var spaHTML = `<!DOCTYPE html>
   .unlock-box { width: 100%; max-width: 360px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
   .unlock-box h1 { font-size: 18px; line-height: 1.3; margin-bottom: 8px; }
   .unlock-box p { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+  .unlock-box label { display: block; font-weight: 600; margin-bottom: 6px; }
   #unlock-code { width: 100%; background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 9px 10px; font-size: 16px; font-family: var(--font-mono); }
   #unlock-code:focus { outline: 2px solid var(--accent); }
   #unlock-submit { width: 100%; margin-top: 12px; background: var(--accent); color: #06101f; border: 0; border-radius: var(--radius); padding: 9px 10px; font-weight: 700; cursor: pointer; }
@@ -120,8 +121,9 @@ var spaHTML = `<!DOCTYPE html>
 <div id="unlock-panel">
   <form id="unlock-form" class="unlock-box">
     <h1>Access code required</h1>
-    <p>Enter the code shared by the session owner.</p>
-    <input id="unlock-code" name="passcode" type="password" autocomplete="one-time-code" inputmode="text" spellcheck="false" autofocus>
+    <p id="unlock-help">Enter the code shared by the session owner.</p>
+    <label for="unlock-code">Access code</label>
+    <input id="unlock-code" name="passcode" type="password" autocomplete="one-time-code" inputmode="text" spellcheck="false" aria-describedby="unlock-help unlock-error" aria-invalid="false" required>
     <button id="unlock-submit" type="submit">Unlock</button>
     <div id="unlock-error" role="alert"></div>
   </form>
@@ -202,7 +204,7 @@ async function unlock(passcode) {
     body: JSON.stringify({ passcode: passcode })
   });
   if (resp.status === 401 || resp.status === 403) throw new Error('Invalid access code.');
-  if (resp.status === 429) throw new Error('Too many attempts. Try again later.');
+  if (resp.status === 429) throw new Error('Too many attempts. Try again in about 5 minutes.');
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from /api/unlock');
   var data = await resp.json();
   if (!data.token) throw new Error('Unlock response did not include a token.');
@@ -482,19 +484,30 @@ function startApp() {
 
 if (passcodeRequired) {
   document.body.classList.add('locked');
+  $('unlock-code').focus();
   $('unlock-form').addEventListener('submit', async function(e) {
     e.preventDefault();
     var submit = $('unlock-submit');
     var error = $('unlock-error');
+    var code = $('unlock-code');
+    if (code.value.trim() === '') {
+      code.setAttribute('aria-invalid', 'true');
+      error.textContent = 'Enter the access code.';
+      code.focus();
+      return;
+    }
     submit.disabled = true;
     error.textContent = '';
+    code.setAttribute('aria-invalid', 'false');
     try {
-      await unlock($('unlock-code').value);
+      await unlock(code.value);
       document.body.classList.remove('locked');
       startApp();
+      $('search-input').focus();
     } catch(err) {
+      code.setAttribute('aria-invalid', 'true');
       error.textContent = err.message;
-      $('unlock-code').focus();
+      code.focus();
     }
     submit.disabled = false;
   });

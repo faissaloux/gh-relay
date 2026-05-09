@@ -281,6 +281,30 @@ func TestPasscodeRequiredSPARendersUnlockGateWithoutToken(t *testing.T) {
 	}
 }
 
+func TestPasscodeRequiredSPAIncludesAccessibleUnlockControls(t *testing.T) {
+	srv, _ := newTestServerWithPasscode(t, "483920")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	checks := []string{
+		`<label for="unlock-code">Access code</label>`,
+		`id="unlock-help"`,
+		`aria-describedby="unlock-help unlock-error"`,
+		`aria-invalid="false"`,
+		`required`,
+		`$('unlock-code').focus();`,
+		`$('search-input').focus();`,
+	}
+	for _, want := range checks {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected passcode SPA to contain %q", want)
+		}
+	}
+}
+
 func TestSPADoesNotLoadThirdPartyAssets(t *testing.T) {
 	srv, _ := newTestServer(t, nil, testTree())
 
