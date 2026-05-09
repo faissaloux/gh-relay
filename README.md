@@ -181,7 +181,7 @@ gh-relay share \
   --passcode
 ```
 
-You can also choose the code yourself. Explicit values must use `--passcode=value`.
+You can also choose the code yourself. Explicit values must use `--passcode=value`, must be 8-128 characters, and cannot be `true` or `false`. Prefer generated codes when possible so the access code does not land in shell history or process listings.
 
 ```bash
 gh-relay share \

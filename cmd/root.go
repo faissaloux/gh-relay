@@ -90,6 +90,10 @@ Examples:
   gh-relay share --token ghp_abc123 --repo my-org/private-app --no-scan-secrets --tunnel none`)
 	}
 
+	if err := validatePasscodeFlagArgs(args); err != nil {
+		return err
+	}
+
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -129,6 +133,15 @@ func registerShareFlags(fs *flag.FlagSet, f *shareFlags) {
 	fs.BoolVar(&f.audit, "audit", false, "Log guest activity and print a session summary on exit")
 	fs.BoolVar(&f.allowDownload, "allow-download", false, "Allow guests to download the repository as a ZIP archive")
 	fs.Var(passcodeFlag{config: &f.passcode}, "passcode", "Require a guest access code; use --passcode to generate one or --passcode=value to set one")
+}
+
+func validatePasscodeFlagArgs(args []string) error {
+	for _, arg := range args {
+		if arg == "--passcode=true" || arg == "--passcode=false" {
+			return fmt.Errorf("%s is ambiguous; use bare --passcode to generate a code or --passcode=<custom-code> with a non-boolean value", arg)
+		}
+	}
+	return nil
 }
 
 type passcodeConfig struct {
@@ -216,8 +229,8 @@ func ValidateShareFlags(f shareFlags) error {
 	}
 	if f.passcode.enabled && f.passcode.code != "" {
 		codeLen := len(strings.TrimSpace(f.passcode.code))
-		if codeLen < 4 || codeLen > 128 {
-			return fmt.Errorf("--passcode value must be between 4 and 128 characters")
+		if codeLen < 8 || codeLen > 128 {
+			return fmt.Errorf("--passcode value must be between 8 and 128 characters")
 		}
 	}
 	if _, err := filter.NewPolicy(f.allow, f.deny); err != nil {

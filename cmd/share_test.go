@@ -244,12 +244,35 @@ func TestValidateShareFlags_PasscodeRejectsShortExplicitCode(t *testing.T) {
 		token:    "ghp_testtoken",
 		repo:     "owner/repo",
 		port:     8080,
-		passcode: passcodeConfig{enabled: true, code: "123"},
+		passcode: passcodeConfig{enabled: true, code: "1234567"},
 	}
 
 	err := ValidateShareFlags(f)
 	if err == nil {
 		t.Fatal("expected error for short explicit passcode")
+	}
+}
+
+func TestValidatePasscodeFlagArgsRejectsBooleanLookingExplicitValues(t *testing.T) {
+	tests := []string{"--passcode=true", "--passcode=false"}
+	for _, arg := range tests {
+		t.Run(arg, func(t *testing.T) {
+			if err := validatePasscodeFlagArgs([]string{"--token", "ghp_testtoken", "--repo", "owner/repo", arg}); err == nil {
+				t.Fatal("expected boolean-looking explicit passcode value to be rejected")
+			}
+		})
+	}
+}
+
+func TestValidatePasscodeFlagArgsAllowsBarePasscodeAndExplicitCode(t *testing.T) {
+	tests := [][]string{
+		{"--token", "ghp_testtoken", "--repo", "owner/repo", "--passcode"},
+		{"--token", "ghp_testtoken", "--repo", "owner/repo", "--passcode=review-483920"},
+	}
+	for _, args := range tests {
+		if err := validatePasscodeFlagArgs(args); err != nil {
+			t.Fatalf("validatePasscodeFlagArgs(%v) error = %v", args, err)
+		}
 	}
 }
 
