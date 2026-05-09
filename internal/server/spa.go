@@ -201,7 +201,7 @@ async function unlock(passcode) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passcode: passcode })
   });
-  if (resp.status === 401) throw new Error('Invalid access code.');
+  if (resp.status === 401 || resp.status === 403) throw new Error('Invalid access code.');
   if (resp.status === 429) throw new Error('Too many attempts. Try again later.');
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from /api/unlock');
   var data = await resp.json();

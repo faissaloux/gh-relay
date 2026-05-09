@@ -141,8 +141,8 @@ func TestUnlockRejectsWrongPasscode(t *testing.T) {
 	srv, _ := newTestServerWithPasscode(t, "483920")
 
 	rr := unlockRequest(srv, `{"passcode":"000000"}`)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("POST /api/unlock status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("POST /api/unlock status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 }
 
@@ -169,14 +169,17 @@ func TestUnlockRateLimitsRepeatedFailures(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		rr := unlockRequest(srv, `{"passcode":"000000"}`)
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusForbidden)
 		}
 	}
 
 	rr := unlockRequest(srv, `{"passcode":"000000"}`)
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("sixth failure status = %d, want %d", rr.Code, http.StatusTooManyRequests)
+	}
+	if rr.Header().Get("Retry-After") == "" {
+		t.Fatal("expected Retry-After header on 429 unlock response")
 	}
 }
 
@@ -187,8 +190,8 @@ func TestUnlockRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
 		rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, "203.0.113.10:5000", map[string]string{
 			"X-Forwarded-For": fmt.Sprintf("198.51.100.%d", i+1),
 		})
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusForbidden)
 		}
 	}
 
@@ -205,8 +208,8 @@ func TestUnlockRateLimitNormalizesRemoteAddrPort(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		rr := unlockRequestFrom(srv, `{"passcode":"000000"}`, fmt.Sprintf("203.0.113.20:%d", 5000+i), nil)
-		if rr.Code != http.StatusUnauthorized {
-			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusUnauthorized)
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rr.Code, http.StatusForbidden)
 		}
 	}
 
@@ -225,6 +228,25 @@ func TestUnlockRejectsGet(t *testing.T) {
 
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/unlock status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
+	}
+	if rr.Header().Get("Allow") != http.MethodPost {
+		t.Fatalf("GET /api/unlock Allow = %q, want %q", rr.Header().Get("Allow"), http.MethodPost)
+	}
+}
+
+func TestRequireTokenRejectsPostWithAllowHeader(t *testing.T) {
+	srv, _ := newTestServer(t, nil, testTree())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/info", nil)
+	req.Header.Set("X-Relay-Token", srv.token)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/info status = %d, want %d", rr.Code, http.StatusMethodNotAllowed)
+	}
+	if rr.Header().Get("Allow") != "GET, HEAD" {
+		t.Fatalf("POST /api/info Allow = %q, want %q", rr.Header().Get("Allow"), "GET, HEAD")
 	}
 }
 

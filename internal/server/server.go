@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -102,7 +103,7 @@ func (s *Server) registerRoutes() {
 func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			methodNotAllowed(w, "GET, HEAD")
 			return
 		}
 		tok := r.Header.Get("X-Relay-Token")
@@ -118,14 +119,12 @@ func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		methodNotAllowed(w, http.MethodPost)
 		return
 	}
 	limitKey := unlockRateLimitKey(r)
 	if s.unlocks.blocked(limitKey) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":"too many unlock attempts"}`))
+		tooManyUnlockAttempts(w)
 		return
 	}
 
@@ -149,13 +148,11 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 
 	if !passcodeMatches(req.Passcode, s.cfg.Passcode) {
 		if !s.unlocks.recordFailure(limitKey) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"too many unlock attempts"}`))
+			tooManyUnlockAttempts(w)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"error":"invalid passcode"}`))
 		return
 	}
@@ -177,6 +174,18 @@ func passcodeMatches(got, want string) bool {
 	gotHash := sha256.Sum256([]byte(got))
 	wantHash := sha256.Sum256([]byte(want))
 	return subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) == 1
+}
+
+func methodNotAllowed(w http.ResponseWriter, allow string) {
+	w.Header().Set("Allow", allow)
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+func tooManyUnlockAttempts(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", strconv.Itoa(int(unlockFailureWindow/time.Second)))
+	w.WriteHeader(http.StatusTooManyRequests)
+	w.Write([]byte(`{"error":"too many unlock attempts"}`))
 }
 
 func unlockRateLimitKey(r *http.Request) string {
