@@ -241,6 +241,25 @@ func TestPasscodeRequiredSPARendersUnlockGateWithoutToken(t *testing.T) {
 	}
 }
 
+func TestSPADoesNotLoadThirdPartyAssets(t *testing.T) {
+	srv, _ := newTestServer(t, nil, testTree())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.srv.Handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "cdnjs.cloudflare.com") {
+		t.Fatal("SPA should not load scripts or styles from cdnjs")
+	}
+	if strings.Contains(body, `<script src="https://`) || strings.Contains(body, `<link rel="stylesheet" href="https://`) {
+		t.Fatal("SPA should not load third-party scripts or styles")
+	}
+}
+
 func newTestServer(t *testing.T, policy *filter.Policy, tree *github.Tree) (*Server, *fakeGitHub) {
 	t.Helper()
 	return newTestServerWithConfig(t, policy, tree, Config{})

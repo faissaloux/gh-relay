@@ -8,7 +8,6 @@ var spaHTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>gh-relay</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -74,9 +73,8 @@ var spaHTML = `<!DOCTYPE html>
   #code-wrap { display: flex; min-height: 100%; }
   #line-nums { padding: 16px 0 16px 16px; text-align: right; color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; line-height: 1.6; user-select: none; flex-shrink: 0; min-width: 48px; border-right: 1px solid var(--border); margin-right: 0; white-space: pre; }
   #code-content { flex: 1; overflow: visible; }
-  /* Override hljs defaults to fit our layout */
   #code-content pre { margin: 0; border-radius: 0; background: transparent !important; }
-  #code-content pre code.hljs { padding: 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: transparent !important; white-space: pre; display: block; }
+  #code-content pre code { padding: 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: transparent !important; color: var(--text); white-space: pre; display: block; }
 
   #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-muted); }
   #welcome .big-icon { font-size: 48px; }
@@ -170,19 +168,7 @@ var spaHTML = `<!DOCTYPE html>
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/protobuf.min.js"></script>
 <script>
-hljs.configure({ ignoreUnescapedHTML: true });
-
 var state = { info: null, tree: null, activeFile: null, filterText: '' };
 var relayToken = __RELAY_TOKEN__;
 var passcodeRequired = typeof __RELAY_PASSCODE_REQUIRED__ !== 'undefined' && __RELAY_PASSCODE_REQUIRED__;
@@ -399,15 +385,6 @@ function fileIcon(path) {
   return nameIcons[name] || icons[ext] || '📄';
 }
 
-// Map file extensions to hljs language names
-var EXT_LANG = {
-  go:'go', rs:'rust', py:'python', js:'javascript', jsx:'javascript',
-  ts:'typescript', tsx:'typescript', html:'html', htm:'html', css:'css',
-  scss:'css', json:'json', yaml:'yaml', yml:'yaml', sh:'bash', bash:'bash',
-  zsh:'bash', md:'markdown', sql:'sql', proto:'protobuf', xml:'xml',
-  toml:'ini', dockerfile:'dockerfile', tf:'hcl',
-};
-
 var BINARY_EXTS = {
   png:1, jpg:1, jpeg:1, gif:1, bmp:1, webp:1, ico:1,
   pdf:1, zip:1, gz:1, tar:1, bz2:1, xz:1,
@@ -457,38 +434,15 @@ async function openFile(entry) {
 }
 
 function renderCode(text, path) {
-  var name = path.split('/').pop().toLowerCase();
-  var ext = name.includes('.') ? name.split('.').pop() : '';
-
-  // Special extensionless filenames
-  var nameMap = { dockerfile:'dockerfile', makefile:'bash' };
-  var lang = nameMap[name] || EXT_LANG[ext] || null;
-
   var lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   var lineNums = lines.map(function(_, i) { return i + 1; }).join('\n');
-
-  var highlighted;
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      highlighted = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
-    } catch(e) {
-      highlighted = escHtml(text);
-    }
-  } else {
-    // Let hljs auto-detect, fall back to plain text
-    try {
-      highlighted = hljs.highlightAuto(text).value;
-    } catch(e) {
-      highlighted = escHtml(text);
-    }
-  }
 
   var body = $('viewer-body');
   body.innerHTML =
     '<div id="code-wrap">' +
       '<div id="line-nums">' + lineNums + '</div>' +
-      '<div id="code-content"><pre><code class="hljs">' + highlighted + '</code></pre></div>' +
+      '<div id="code-content"><pre><code>' + escHtml(text) + '</code></pre></div>' +
     '</div>';
 }
 

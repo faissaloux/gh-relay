@@ -340,7 +340,7 @@ For **classic PATs**:
 The guest opens the URL in any browser, no GitHub account, no sign-in, no extension required. If `--passcode` is enabled, they enter the access code first. They see:
 
 - A **file tree** with folder expand/collapse and a live filter
-- A **syntax-highlighted code viewer** for all common languages (Go, Python, Rust, TypeScript, JS, YAML, JSON, and more)
+- A **code viewer** with line numbers for text files
 - A **branch switcher** to explore other branches
 - A **commit history** panel showing recent commits on the active branch
 
@@ -415,7 +415,7 @@ go build -o gh-relay .
 
 ## Roadmap
 
-- [x] File browsing, syntax highlighting, Cloudflare tunnel
+- [x] File browsing, code viewing, Cloudflare tunnel
 - [x] Branch switcher, commit history
 - [ ] Markdown rendering for README files
 - [ ] System keychain integration for token storage
