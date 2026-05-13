@@ -170,6 +170,28 @@ gh-relay share \
 # Open http://localhost:8080 in your browser
 ```
 
+### Require an access code
+
+Use `--passcode` to protect the shared URL with a short code. gh-relay prints the URL and access code separately; the guest must enter the code before the repository browser loads.
+
+```bash
+gh-relay share \
+  --token ghp_... \
+  --repo my-org/private-app \
+  --passcode
+```
+
+You can also choose the code yourself. Explicit values must use `--passcode=value`, must be 8-128 characters, and cannot be `true` or `false`. Prefer generated codes when possible so the access code does not land in shell history or process listings.
+
+```bash
+gh-relay share \
+  --token ghp_... \
+  --repo my-org/private-app \
+  --passcode=review-483920
+```
+
+The access code helps if a URL is accidentally forwarded. It is still a shared secret; anyone with both the URL and code can open the session until it expires or you stop gh-relay.
+
 ### Pre-share secret warnings
 
 Before a share session starts, gh-relay scans the selected branch's shareable repository tree for sensitive-looking paths such as `.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa`, `id_ed25519`, `secrets/`, `credentials.yml`, `config/credentials.yml`, `*.p12`, `*.pfx`, `kubeconfig`, `.npmrc`, `.pypirc`, and `terraform.tfvars`. If `--allow` or `--deny` is set, those filters are applied before the warning scan.
@@ -267,6 +289,7 @@ A "Download ZIP" button appears in the guest's browser. The ZIP is streamed dire
 | `--branch` | `main` | Branch to share |
 | `--port` | `8080` | Local port for the proxy server |
 | `--expire` | unlimited | Auto-close after this duration (`30m`, `1h`, `2h30m`) |
+| `--passcode` | disabled | Require a guest access code; use `--passcode` to generate one or `--passcode=value` to set one |
 | `--tunnel` | `cloudflare` | Tunnel provider: `cloudflare`, `ngrok`, or `none` |
 | `--allow` | empty | Comma-separated repository-relative path patterns to include |
 | `--deny` | empty | Comma-separated repository-relative path patterns to exclude; deny rules win |
@@ -285,8 +308,9 @@ gh-relay is designed from the ground up to share as little as possible.
 
 | Property | How it's enforced |
 |---|---|
-| **Token never leaves your machine** | All GitHub API calls are made server-side. The guest only receives a short-lived session . |
+| **Token never leaves your machine** | All GitHub API calls are made server-side. The guest only receives a short-lived relay token. |
 | **Read-only by design** | The proxy only registers `GET` handlers. `POST`, `PATCH`, `DELETE` return `405` before any session check. |
+| **Optional access code** | `--passcode` keeps the file browser locked until the guest enters the shared code. Failed unlock attempts are rate-limited per client IP. |
 | **Server-side path filters** | Optional `--allow` and `--deny` rules are applied to tree listings and blob reads. Deny rules take precedence and blob requests must match the allowed path, branch, and SHA. |
 | **Pre-share secret warning** | Before opening the tunnel, gh-relay scans the filtered shareable tree for suspicious paths and can optionally scan small text blobs. Findings are sanitized and never include matched secret values. |
 | **Nothing written to disk** | Files are fetched on demand and streamed directly to the guest. No `git clone`, no temp files. |
@@ -313,10 +337,10 @@ For **classic PATs**:
 
 ## Guest experience
 
-The guest opens the URL in any browser, no GitHub account, no sign-in, no extension required. They see:
+The guest opens the URL in any browser, no GitHub account, no sign-in, no extension required. If `--passcode` is enabled, they enter the access code first. They see:
 
 - A **file tree** with folder expand/collapse and a live filter
-- A **syntax-highlighted code viewer** for all common languages (Go, Python, Rust, TypeScript, JS, YAML, JSON, and more)
+- A **code viewer** with line numbers for text files
 - A **branch switcher** to explore other branches
 - A **commit history** panel showing recent commits on the active branch
 
@@ -391,11 +415,11 @@ go build -o gh-relay .
 
 ## Roadmap
 
-- [x] File browsing, syntax highlighting, Cloudflare tunnel
+- [x] File browsing, code viewing, Cloudflare tunnel
 - [x] Branch switcher, commit history
-- [] Markdown rendering for README files
+- [ ] Markdown rendering for README files
 - [ ] System keychain integration for token storage
-- [ ] Optional one-time password protection for the shared URL
+- [x] Optional access code protection for the shared URL
 - [ ] `gh` CLI extension (`gh relay share ...`)
 
 ---

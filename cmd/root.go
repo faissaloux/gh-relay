@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.ibm.com/soub4i/gh-relay/internal/filter"
@@ -66,20 +67,7 @@ func runShare(args []string) error {
 	fs := flag.NewFlagSet("share", flag.ContinueOnError)
 
 	var f shareFlags
-	fs.StringVar(&f.token, "token", "", "GitHub Personal Access Token (required)")
-	fs.StringVar(&f.repo, "repo", "", "Target repository, e.g. owner/repo (required)")
-	fs.StringVar(&f.branch, "branch", "main", "Branch to share (default: main)")
-	fs.IntVar(&f.port, "port", 8080, "Local port for the proxy server")
-	fs.DurationVar(&f.expire, "expire", 0, "Session duration, e.g. 30m or 1h (default: unlimited)")
-	fs.StringVar(&f.tunnel, "tunnel", "cloudflare", "Tunnel provider: cloudflare, ngrok, or none")
-	fs.StringVar(&f.allow, "allow", "", "Comma-separated repository-relative path patterns to include")
-	fs.StringVar(&f.deny, "deny", "", "Comma-separated repository-relative path patterns to exclude; deny wins over allow")
-	fs.BoolVar(&f.scanSecrets, "scan-secrets", true, "Scan repository paths for sensitive files before sharing")
-	fs.Var(negatedBoolFlag{target: &f.scanSecrets}, "no-scan-secrets", "Disable pre-share sensitive file scanning")
-	fs.BoolVar(&f.scanContent, "scan-content", false, "Also scan small text blobs for common secret patterns")
-	fs.BoolVar(&f.failOnSecrets, "fail-on-secrets", false, "Exit non-zero if the pre-share scan finds potential secrets")
-	fs.BoolVar(&f.audit, "audit", false, "Log guest activity and print a session summary on exit")
-	fs.BoolVar(&f.allowDownload, "allow-download", false, "Allow guests to download the repository as a ZIP archive")
+	registerShareFlags(fs, &f)
 
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, `Usage: gh-relay share [flags]
@@ -97,7 +85,13 @@ Examples:
   gh-relay share --token ghp_abc123 --repo my-org/private-app --allow "src/**,docs/**" --deny ".env,.env.*,secrets/**"
   gh-relay share --token ghp_abc123 --repo my-org/private-app --scan-content
   gh-relay share --token ghp_abc123 --repo my-org/private-app --fail-on-secrets
+  gh-relay share --token ghp_abc123 --repo my-org/private-app --passcode
+  gh-relay share --token ghp_abc123 --repo my-org/private-app --passcode=review-483920
   gh-relay share --token ghp_abc123 --repo my-org/private-app --no-scan-secrets --tunnel none`)
+	}
+
+	if err := validatePasscodeFlagArgs(args); err != nil {
+		return err
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -121,6 +115,75 @@ Examples:
 	}
 
 	return RunShareSession(ctx, f)
+}
+
+func registerShareFlags(fs *flag.FlagSet, f *shareFlags) {
+	fs.StringVar(&f.token, "token", "", "GitHub Personal Access Token (required)")
+	fs.StringVar(&f.repo, "repo", "", "Target repository, e.g. owner/repo (required)")
+	fs.StringVar(&f.branch, "branch", "main", "Branch to share (default: main)")
+	fs.IntVar(&f.port, "port", 8080, "Local port for the proxy server")
+	fs.DurationVar(&f.expire, "expire", 0, "Session duration, e.g. 30m or 1h (default: unlimited)")
+	fs.StringVar(&f.tunnel, "tunnel", "cloudflare", "Tunnel provider: cloudflare, ngrok, or none")
+	fs.StringVar(&f.allow, "allow", "", "Comma-separated repository-relative path patterns to include")
+	fs.StringVar(&f.deny, "deny", "", "Comma-separated repository-relative path patterns to exclude; deny wins over allow")
+	fs.BoolVar(&f.scanSecrets, "scan-secrets", true, "Scan repository paths for sensitive files before sharing")
+	fs.Var(negatedBoolFlag{target: &f.scanSecrets}, "no-scan-secrets", "Disable pre-share sensitive file scanning")
+	fs.BoolVar(&f.scanContent, "scan-content", false, "Also scan small text blobs for common secret patterns")
+	fs.BoolVar(&f.failOnSecrets, "fail-on-secrets", false, "Exit non-zero if the pre-share scan finds potential secrets")
+	fs.BoolVar(&f.audit, "audit", false, "Log guest activity and print a session summary on exit")
+	fs.BoolVar(&f.allowDownload, "allow-download", false, "Allow guests to download the repository as a ZIP archive")
+	fs.Var(passcodeFlag{config: &f.passcode}, "passcode", "Require a guest access code; use --passcode to generate one or --passcode=value to set one")
+}
+
+func validatePasscodeFlagArgs(args []string) error {
+	for _, arg := range args {
+		if arg == "--passcode=true" || arg == "--passcode=false" {
+			return fmt.Errorf("%s is ambiguous; use bare --passcode to generate a code or --passcode=<custom-code> with a non-boolean value", arg)
+		}
+	}
+	return nil
+}
+
+type passcodeConfig struct {
+	enabled bool
+	code    string
+}
+
+type passcodeFlag struct {
+	config *passcodeConfig
+}
+
+func (f passcodeFlag) Set(value string) error {
+	if f.config == nil {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	switch value {
+	case "true", "":
+		f.config.enabled = true
+		f.config.code = ""
+	case "false":
+		f.config.enabled = false
+		f.config.code = ""
+	default:
+		f.config.enabled = true
+		f.config.code = value
+	}
+	return nil
+}
+
+func (f passcodeFlag) String() string {
+	if f.config == nil || !f.config.enabled {
+		return "false"
+	}
+	if f.config.code == "" {
+		return "true"
+	}
+	return f.config.code
+}
+
+func (f passcodeFlag) IsBoolFlag() bool {
+	return true
 }
 
 type negatedBoolFlag struct {
@@ -163,6 +226,12 @@ func ValidateShareFlags(f shareFlags) error {
 	}
 	if f.port < 1 || f.port > 65535 {
 		return fmt.Errorf("--port must be between 1 and 65535")
+	}
+	if f.passcode.enabled && f.passcode.code != "" {
+		codeLen := len(strings.TrimSpace(f.passcode.code))
+		if codeLen < 8 || codeLen > 128 {
+			return fmt.Errorf("--passcode value must be between 8 and 128 characters")
+		}
 	}
 	if _, err := filter.NewPolicy(f.allow, f.deny); err != nil {
 		return err

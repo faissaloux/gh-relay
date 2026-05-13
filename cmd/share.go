@@ -3,8 +3,10 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -34,6 +36,7 @@ type shareFlags struct {
 	failOnSecrets bool
 	audit         bool
 	allowDownload bool
+	passcode      passcodeConfig
 }
 
 type secretScanGitHub interface {
@@ -44,6 +47,10 @@ type secretScanGitHub interface {
 func RunShareSession(ctx context.Context, f shareFlags) error {
 	logger := log.New(os.Stderr, "", 0)
 	pathPolicy, err := filter.NewPolicy(f.allow, f.deny)
+	if err != nil {
+		return err
+	}
+	passcode, err := resolvePasscode(f)
 	if err != nil {
 		return err
 	}
@@ -94,7 +101,7 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 	}
 
 	done := ctx.Done()
-	sessionTTL := 24 * time.Hour
+	sessionTTL := time.Duration(0)
 	if f.expire > 0 {
 		sessionTTL = f.expire
 	}
@@ -116,7 +123,8 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 		Tree:          initialTree,
 		AuditLog:      auditLog,
 		AllowDownload: f.allowDownload,
-    PathFilter: pathPolicy,
+		PathFilter:    pathPolicy,
+		Passcode:      passcode,
 	}
 	serverErr := startServer(ctx, cfg)
 
@@ -128,7 +136,7 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 	defer tun.Close()
 	logger.Printf("Tunnel active")
 
-	printShareInfo(logger, f, owner, repo, branch, repoInfo, pathPolicy, tun.URL())
+	printShareInfo(logger, f, owner, repo, branch, repoInfo, pathPolicy, passcode, tun.URL())
 
 	select {
 	case <-ctx.Done():
@@ -142,6 +150,28 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 	}
 
 	return nil
+}
+
+func resolvePasscode(f shareFlags) (string, error) {
+	if !f.passcode.enabled {
+		return "", nil
+	}
+	if f.passcode.code != "" {
+		return f.passcode.code, nil
+	}
+	return generateNumericPasscode(6)
+}
+
+func generateNumericPasscode(digits int) (string, error) {
+	max := int64(1)
+	for i := 0; i < digits; i++ {
+		max *= 10
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(max))
+	if err != nil {
+		return "", fmt.Errorf("generating passcode: %w", err)
+	}
+	return fmt.Sprintf("%0*d", digits, n.Int64()), nil
 }
 
 func runSecretPreflight(ctx context.Context, logger *log.Logger, gh secretScanGitHub, owner, repo, branch string, f shareFlags, pathPolicy *filter.Policy) (*github.Tree, error) {
@@ -283,7 +313,7 @@ func printBanner(l *log.Logger) {
 	l.Println(strings.Repeat("-", 54))
 }
 
-func printShareInfo(l *log.Logger, f shareFlags, owner, repo, branch string, info *github.RepoInfo, pathPolicy *filter.Policy, url string) {
+func printShareInfo(l *log.Logger, f shareFlags, owner, repo, branch string, info *github.RepoInfo, pathPolicy *filter.Policy, passcode, url string) {
 	l.Println()
 	l.Println(strings.Repeat("-", 54))
 	l.Println("  SESSION ACTIVE")
@@ -307,6 +337,11 @@ func printShareInfo(l *log.Logger, f shareFlags, owner, repo, branch string, inf
 	l.Println()
 	l.Printf("  Share this URL with your guest:")
 	l.Printf("    %s", url)
+	if passcode != "" {
+		l.Println()
+		l.Printf("  Access code:")
+		l.Printf("    %s", passcode)
+	}
 	l.Println()
 	if f.expire > 0 {
 		l.Printf("  Session expires in: %s (%s)", f.expire, time.Now().Add(f.expire).Format(time.RFC1123))

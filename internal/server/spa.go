@@ -8,7 +8,6 @@ var spaHTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>gh-relay</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -74,9 +73,8 @@ var spaHTML = `<!DOCTYPE html>
   #code-wrap { display: flex; min-height: 100%; }
   #line-nums { padding: 16px 0 16px 16px; text-align: right; color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; line-height: 1.6; user-select: none; flex-shrink: 0; min-width: 48px; border-right: 1px solid var(--border); margin-right: 0; white-space: pre; }
   #code-content { flex: 1; overflow: visible; }
-  /* Override hljs defaults to fit our layout */
   #code-content pre { margin: 0; border-radius: 0; background: transparent !important; }
-  #code-content pre code.hljs { padding: 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: transparent !important; white-space: pre; display: block; }
+  #code-content pre code { padding: 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: transparent !important; color: var(--text); white-space: pre; display: block; }
 
   #welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-muted); }
   #welcome .big-icon { font-size: 48px; }
@@ -101,6 +99,18 @@ var spaHTML = `<!DOCTYPE html>
   .commit-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .commit-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   #commits-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; }
+  #unlock-panel { display: none; min-height: 100%; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+  body.locked #unlock-panel { display: flex; }
+  body.locked #app { display: none; }
+  .unlock-box { width: 100%; max-width: 360px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+  .unlock-box h1 { font-size: 18px; line-height: 1.3; margin-bottom: 8px; }
+  .unlock-box p { color: var(--text-muted); font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+  .unlock-box label { display: block; font-weight: 600; margin-bottom: 6px; }
+  #unlock-code { width: 100%; background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); padding: 9px 10px; font-size: 16px; font-family: var(--font-mono); }
+  #unlock-code:focus { outline: 2px solid var(--accent); }
+  #unlock-submit { width: 100%; margin-top: 12px; background: var(--accent); color: #06101f; border: 0; border-radius: var(--radius); padding: 9px 10px; font-weight: 700; cursor: pointer; }
+  #unlock-submit:disabled { cursor: wait; opacity: 0.75; }
+  #unlock-error { min-height: 18px; margin-top: 10px; color: var(--danger); font-size: 13px; }
 
   @media (max-width: 640px) { :root { --tree-w: 220px; } }
 </style>
@@ -108,6 +118,16 @@ var spaHTML = `<!DOCTYPE html>
 <script>/*__ALLOW_DOWNLOAD__*/</script>
 </head>
 <body>
+<div id="unlock-panel">
+  <form id="unlock-form" class="unlock-box">
+    <h1>Access code required</h1>
+    <p id="unlock-help">Enter the code shared by the session owner.</p>
+    <label for="unlock-code">Access code</label>
+    <input id="unlock-code" name="passcode" type="password" autocomplete="one-time-code" inputmode="text" spellcheck="false" aria-describedby="unlock-help unlock-error" aria-invalid="false" required>
+    <button id="unlock-submit" type="submit">Unlock</button>
+    <div id="unlock-error" role="alert"></div>
+  </form>
+</div>
 <div id="app">
   <header id="header">
     <span class="logo">gh-relay</span>&nbsp;version: ` + version.Version + `&nbsp;|&nbsp;<small>by <a href="https://github.com/soub4i" target="_blank" style="color:var(--accent)">soub4i</a></small>
@@ -150,20 +170,10 @@ var spaHTML = `<!DOCTYPE html>
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/protobuf.min.js"></script>
 <script>
-hljs.configure({ ignoreUnescapedHTML: true });
-
 var state = { info: null, tree: null, activeFile: null, filterText: '' };
+var relayToken = __RELAY_TOKEN__;
+var passcodeRequired = typeof __RELAY_PASSCODE_REQUIRED__ !== 'undefined' && __RELAY_PASSCODE_REQUIRED__;
 
 function $(id) { return document.getElementById(id); }
 
@@ -176,7 +186,7 @@ function showToast(msg) {
 
 function api(path) {
   return fetch(path, {
-    headers: { 'X-Relay-Token': __RELAY_TOKEN__ }
+    headers: { 'X-Relay-Token': relayToken }
   }).then(function(r) {
     if (r.status === 401) {
       document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#f85149">Session expired, please reload the page.</div>';
@@ -185,6 +195,20 @@ function api(path) {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' from ' + path);
     return r;
   });
+}
+
+async function unlock(passcode) {
+  var resp = await fetch('/api/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode: passcode })
+  });
+  if (resp.status === 401 || resp.status === 403) throw new Error('Invalid access code.');
+  if (resp.status === 429) throw new Error('Too many attempts. Try again in about 5 minutes.');
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' from /api/unlock');
+  var data = await resp.json();
+  if (!data.token) throw new Error('Unlock response did not include a token.');
+  relayToken = data.token;
 }
 
 async function boot() {
@@ -363,15 +387,6 @@ function fileIcon(path) {
   return nameIcons[name] || icons[ext] || '📄';
 }
 
-// Map file extensions to hljs language names
-var EXT_LANG = {
-  go:'go', rs:'rust', py:'python', js:'javascript', jsx:'javascript',
-  ts:'typescript', tsx:'typescript', html:'html', htm:'html', css:'css',
-  scss:'css', json:'json', yaml:'yaml', yml:'yaml', sh:'bash', bash:'bash',
-  zsh:'bash', md:'markdown', sql:'sql', proto:'protobuf', xml:'xml',
-  toml:'ini', dockerfile:'dockerfile', tf:'hcl',
-};
-
 var BINARY_EXTS = {
   png:1, jpg:1, jpeg:1, gif:1, bmp:1, webp:1, ico:1,
   pdf:1, zip:1, gz:1, tar:1, bz2:1, xz:1,
@@ -421,38 +436,15 @@ async function openFile(entry) {
 }
 
 function renderCode(text, path) {
-  var name = path.split('/').pop().toLowerCase();
-  var ext = name.includes('.') ? name.split('.').pop() : '';
-
-  // Special extensionless filenames
-  var nameMap = { dockerfile:'dockerfile', makefile:'bash' };
-  var lang = nameMap[name] || EXT_LANG[ext] || null;
-
   var lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   var lineNums = lines.map(function(_, i) { return i + 1; }).join('\n');
-
-  var highlighted;
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      highlighted = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
-    } catch(e) {
-      highlighted = escHtml(text);
-    }
-  } else {
-    // Let hljs auto-detect, fall back to plain text
-    try {
-      highlighted = hljs.highlightAuto(text).value;
-    } catch(e) {
-      highlighted = escHtml(text);
-    }
-  }
 
   var body = $('viewer-body');
   body.innerHTML =
     '<div id="code-wrap">' +
       '<div id="line-nums">' + lineNums + '</div>' +
-      '<div id="code-content"><pre><code class="hljs">' + highlighted + '</code></pre></div>' +
+      '<div id="code-content"><pre><code>' + escHtml(text) + '</code></pre></div>' +
     '</div>';
 }
 
@@ -480,14 +472,48 @@ async function openCommits() {
   }
 }
 
-$('commits-close').addEventListener('click', function() { $('commits-overlay').classList.remove('show'); });
-$('commits-overlay').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
-$('search-input').addEventListener('input', function() {
-  state.filterText = this.value;
-  if (state.tree) renderTree(state.tree);
-});
+function startApp() {
+  $('commits-close').addEventListener('click', function() { $('commits-overlay').classList.remove('show'); });
+  $('commits-overlay').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+  $('search-input').addEventListener('input', function() {
+    state.filterText = this.value;
+    if (state.tree) renderTree(state.tree);
+  });
+  boot().catch(function(e) { showToast('Boot error: ' + e.message); });
+}
 
-boot().catch(function(e) { showToast('Boot error: ' + e.message); });
+if (passcodeRequired) {
+  document.body.classList.add('locked');
+  $('unlock-code').focus();
+  $('unlock-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var submit = $('unlock-submit');
+    var error = $('unlock-error');
+    var code = $('unlock-code');
+    if (code.value.trim() === '') {
+      code.setAttribute('aria-invalid', 'true');
+      error.textContent = 'Enter the access code.';
+      code.focus();
+      return;
+    }
+    submit.disabled = true;
+    error.textContent = '';
+    code.setAttribute('aria-invalid', 'false');
+    try {
+      await unlock(code.value);
+      document.body.classList.remove('locked');
+      startApp();
+      $('search-input').focus();
+    } catch(err) {
+      code.setAttribute('aria-invalid', 'true');
+      error.textContent = err.message;
+      code.focus();
+    }
+    submit.disabled = false;
+  });
+} else {
+  startApp();
+}
 </script>
 </body>
 </html>`
