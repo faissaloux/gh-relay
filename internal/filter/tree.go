@@ -3,7 +3,7 @@ package filter
 import (
 	"path"
 
-	"github.ibm.com/soub4i/gh-relay/internal/github"
+	"github.com/soub4i/gh-relay/internal/github"
 )
 
 // FilterTree returns the repository tree visible under policy.

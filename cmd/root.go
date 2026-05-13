@@ -11,10 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
-	"github.ibm.com/soub4i/gh-relay/internal/filter"
-	"github.ibm.com/soub4i/gh-relay/internal/version"
+	"github.com/soub4i/gh-relay/internal/filter"
+	"github.com/soub4i/gh-relay/internal/version"
 )
+
+const noExpiry time.Duration = 0
 
 // rootCmd is the top-level command set.
 var rootCmd = &command{
@@ -67,6 +70,7 @@ func runShare(args []string) error {
 	fs := flag.NewFlagSet("share", flag.ContinueOnError)
 
 	var f shareFlags
+	// resolveToken checks both the --token flag and GH_RELAY_TOKEN env var, preferring the flag but warning about security implications.
 	registerShareFlags(fs, &f)
 
 	fs.Usage = func() {
@@ -108,7 +112,7 @@ Examples:
 	defer cancel()
 
 	// If --expire is set, also cancel after that duration.
-	if f.expire > 0 {
+	if f.expire != noExpiry {
 		var expireCancel context.CancelFunc
 		ctx, expireCancel = context.WithTimeout(ctx, f.expire)
 		defer expireCancel()
@@ -138,7 +142,10 @@ func registerShareFlags(fs *flag.FlagSet, f *shareFlags) {
 func validatePasscodeFlagArgs(args []string) error {
 	for _, arg := range args {
 		if arg == "--passcode=true" || arg == "--passcode=false" {
-			return fmt.Errorf("%s is ambiguous; use bare --passcode to generate a code or --passcode=<custom-code> with a non-boolean value", arg)
+			trimmed := strings.TrimLeft(arg, "-")
+			if trimmed == "passcode=true" || trimmed == "passcode=false" {
+				return fmt.Errorf("ambiguous --passcode value: %q; use --passcode to enable with a generated code, --passcode=value to set a custom code, or --passcode=false to disable", arg)
+			}
 		}
 	}
 	return nil
@@ -155,7 +162,7 @@ type passcodeFlag struct {
 
 func (f passcodeFlag) Set(value string) error {
 	if f.config == nil {
-		return nil
+		panic("passcodeFlag config cannot be nil")
 	}
 	value = strings.TrimSpace(value)
 	switch value {
@@ -172,6 +179,8 @@ func (f passcodeFlag) Set(value string) error {
 	return nil
 }
 
+// String returns the negation because this flag represents the *disabled* state.
+// When scan-secrets is true (enabled), --no-scan-secrets shows "false".
 func (f passcodeFlag) String() string {
 	if f.config == nil || !f.config.enabled {
 		return "false"
@@ -218,9 +227,6 @@ func runVersion() error {
 }
 
 func ValidateShareFlags(f shareFlags) error {
-	if f.token == "" {
-		return fmt.Errorf("--token is required\nGenerate a PAT here: https://github.com/settings/tokens/new?scopes=repo")
-	}
 	if f.repo == "" {
 		return fmt.Errorf("--repo is required")
 	}
@@ -237,4 +243,15 @@ func ValidateShareFlags(f shareFlags) error {
 		return err
 	}
 	return nil
+}
+
+func resolveToken(flagVal string) (string, error) {
+	if flagVal != "" {
+		fmt.Fprintln(os.Stderr, "\nWARNING: passing --token on the command line exposes it in the process list; prefer GH_RELAY_TOKEN")
+		return flagVal, nil
+	}
+	if v := os.Getenv("GH_RELAY_TOKEN"); v != "" {
+		return v, nil
+	}
+	return "", fmt.Errorf("GitHub token required: set GH_RELAY_TOKEN or use --token\nGenerate a PAT: https://github.com/settings/tokens/new?scopes=repo")
 }

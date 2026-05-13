@@ -1,6 +1,6 @@
 package server
 
-import "github.ibm.com/soub4i/gh-relay/internal/version"
+import "github.com/soub4i/gh-relay/internal/version"
 
 var spaHTML = `<!DOCTYPE html>
 <html lang="en">

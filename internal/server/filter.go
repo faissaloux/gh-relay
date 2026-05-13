@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 
-	"github.ibm.com/soub4i/gh-relay/internal/filter"
-	"github.ibm.com/soub4i/gh-relay/internal/github"
+	"github.com/soub4i/gh-relay/internal/filter"
+	"github.com/soub4i/gh-relay/internal/github"
 )
 
 func (s *Server) pathFilterEnabled() bool {

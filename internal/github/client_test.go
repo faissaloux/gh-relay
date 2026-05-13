@@ -212,4 +212,3 @@ func TestGetBlob_DecodeError(t *testing.T) {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
-

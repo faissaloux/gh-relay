@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.ibm.com/soub4i/gh-relay/cmd"
+	"github.com/soub4i/gh-relay/cmd"
 )
 
 func main() {
