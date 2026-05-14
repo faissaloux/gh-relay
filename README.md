@@ -32,6 +32,8 @@ $ gh-relay share --repo my-org/private-app --expire 1h
 ---
 
 ## How it works
+
+```
                           YOUR MACHINE
 ┌───────────────────────────────────────────────────────────────────────────┐
 │                                                                           │
@@ -57,6 +59,8 @@ $ gh-relay share --repo my-org/private-app --expire 1h
 │   No GitHub account needed. Cannot push, clone, or download files.         │
 │                                                                            │
 └────────────────────────────────────────────────────────────────────────────┘
+```
+
 1. **You run** `gh-relay share` with your GitHub token and repo name.
 2. **A local proxy** starts on your machine and fetches files from GitHub using your token.
 3. **A secure tunnel** (Cloudflare or ngrok) exposes the proxy via a temporary public URL.
