@@ -14,7 +14,8 @@ Adding a contractor or auditor as a GitHub collaborator means IT tickets, legal 
 **gh-relay** fixes this in one command. Run it on your machine, share a temporary URL, and your guest gets a read-only browser view of the codebase. When you press `Ctrl+C`, the link is dead, zero cleanup, zero lingering access.
 
 ```
-$ gh-relay share --token ghp_... --repo my-org/private-app --expire 1h
+$ export GH_RELAY_TOKEN=ghp_...
+$ gh-relay share --repo my-org/private-app --expire 1h
 
    Token valid
    Repository: my-org/private-app (private)
@@ -103,30 +104,35 @@ You need at least one tunnel provider installed:
 
 ## Usage
 
+### Using environment variable
+
+```bash
+export GH_RELAY_TOKEN=ghp_YourPersonalAccessToken
+gh-relay share --repo my-org/private-app --expire 1h
+```
+
+If both `--token` and `GH_RELAY_TOKEN` are set, `--token` takes precedence (a warning is logged).
+
+> **Tip:** Avoid exposing your token in shell history by using `GH_RELAY_TOKEN` instead of `--token`.
+
 ### Share a repo
 
 ```bash
-gh-relay share \
-  --token ghp_YourPersonalAccessToken \
-  --repo my-org/private-app
+gh-relay share --repo my-org/private-app
 ```
 
 ### Set an expiry
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
+gh-relay share --repo my-org/private-app --expire 30m
+```
   --expire 30m
 ```
 
 ### Share a specific branch
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --branch feature/new-auth
+gh-relay share --repo my-org/private-app --branch feature/new-auth
 ```
 
 ### Share only selected paths
@@ -134,18 +140,11 @@ gh-relay share \
 Use `--allow` to expose only matching repository paths. Use `--deny` to hide matching paths; deny rules always take precedence over allow rules.
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --allow "src/**,docs/**,README.md"
+gh-relay share --repo my-org/private-app --allow "src/**,docs/**,README.md"
 ```
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --allow "src/**,docs/**,README.md" \
-  --deny ".env,.env.*,secrets/**,*.pem"
+gh-relay share --repo my-org/private-app --allow "src/**,docs/**,README.md" --deny ".env,.env.*,secrets/**,*.pem"
 ```
 
 Filters are enforced server-side for both `/api/tree` listings and `/api/blob` file access, so a guest cannot bypass a hidden path by manually requesting a blob SHA. Patterns are globs; use `.env,.env.*` if you want to hide both `.env` and files like `.env.local`.
@@ -153,20 +152,13 @@ Filters are enforced server-side for both `/api/tree` listings and `/api/blob` f
 ### Use ngrok instead of Cloudflare
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --tunnel ngrok
+gh-relay share --repo my-org/private-app --tunnel ngrok
 ```
 
 ### Local only (no tunnel, useful for testing)
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --tunnel none \
-  --port 8080
+gh-relay share --repo my-org/private-app --tunnel none --port 8080
 # Open http://localhost:8080 in your browser
 ```
 
@@ -175,19 +167,13 @@ gh-relay share \
 Use `--passcode` to protect the shared URL with a short code. gh-relay prints the URL and access code separately; the guest must enter the code before the repository browser loads.
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --passcode
+gh-relay share --repo my-org/private-app --passcode
 ```
 
 You can also choose the code yourself. Explicit values must use `--passcode=value`, must be 8-128 characters, and cannot be `true` or `false`. Prefer generated codes when possible so the access code does not land in shell history or process listings.
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --passcode=review-483920
+gh-relay share --repo my-org/private-app --passcode=review-483920
 ```
 
 The access code helps if a URL is accidentally forwarded. It is still a shared secret; anyone with both the URL and code can open the session until it expires or you stop gh-relay.
@@ -199,18 +185,13 @@ Before a share session starts, gh-relay scans the selected branch's shareable re
 Path scanning is enabled by default:
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app
+gh-relay share --repo my-org/private-app
 ```
 
 You can also scan small text files for common high-risk patterns such as AWS access key IDs, GitHub token prefixes, private key headers, and simple assignments like `password=`, `secret=`, `api_key=`, or `token=`:
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --scan-content
+gh-relay share --repo my-org/private-app --scan-content
 ```
 
 If findings are detected, gh-relay prints only the file path, finding type, severity, and rule name. It never prints matched secret values.
@@ -230,19 +211,13 @@ Continue sharing? [y/N]:
 In non-interactive mode, gh-relay prints the warning and continues unless `--fail-on-secrets` is set:
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --fail-on-secrets
+gh-relay share --repo my-org/private-app --fail-on-secrets
 ```
 
 To skip this preflight scan:
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --no-scan-secrets
+gh-relay share --repo my-org/private-app --no-scan-secrets
 ```
 
 This is a best-effort warning system, not a full security scanner. It does not scan Git history, all branches, generated artifacts outside the selected tree, large blobs, binary files, encrypted files, or every possible secret format. Review sensitive repositories before exposing them.
@@ -250,10 +225,7 @@ This is a best-effort warning system, not a full security scanner. It does not s
 ### Enable audit logging
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --audit
+gh-relay share --repo my-org/private-app --audit
 ```
 
 Logs guest activity to the terminal and prints a summary on exit:
@@ -272,10 +244,7 @@ Logs guest activity to the terminal and prints a summary on exit:
 ### Allow guests to download as ZIP
 
 ```bash
-gh-relay share \
-  --token ghp_... \
-  --repo my-org/private-app \
-  --allow-download
+gh-relay share --repo my-org/private-app --allow-download
 ```
 
 A "Download ZIP" button appears in the guest's browser. The ZIP is streamed directly from GitHub through the proxy — nothing is written to disk. Off by default since a downloaded ZIP gives the guest a permanent copy.
@@ -284,7 +253,7 @@ A "Download ZIP" button appears in the guest's browser. The ZIP is streamed dire
 
 | Flag | Default | Description |
 |---|---|---|
-| `--token` | *(required)* | GitHub PAT with `repo` scope. [Generate one here](https://github.com/settings/tokens/new?scopes=repo). |
+| `--token` | *(optional if `GH_RELAY_TOKEN` is set)* | GitHub PAT with `repo` scope, or set via `GH_RELAY_TOKEN` env var. [Generate one here](https://github.com/settings/tokens/new?scopes=repo). |
 | `--repo` | *(required)* | Target repository in `owner/repo` format |
 | `--branch` | `main` | Branch to share |
 | `--port` | `8080` | Local port for the proxy server |

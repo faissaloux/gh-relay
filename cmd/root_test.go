@@ -70,3 +70,18 @@ func TestExecute_HelpCommand(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 }
+func TestPasscodeFlag_BooleanRejected(t *testing.T) {
+	err := validatePasscodeFlagArgs([]string{"--passcode=true"})
+	if err == nil {
+		t.Fatal("expected ambiguous-passcode error")
+	}
+}
+
+func TestPasscodeFlag_CustomCode(t *testing.T) {
+	var cfg passcodeConfig
+	f := passcodeFlag{config: &cfg}
+	_ = f.Set("my-secret-code")
+	if !cfg.enabled || cfg.code != "my-secret-code" {
+		t.Fatalf("unexpected config: %+v", cfg)
+	}
+}

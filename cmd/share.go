@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.ibm.com/soub4i/gh-relay/internal/filter"
-	"github.ibm.com/soub4i/gh-relay/internal/github"
-	"github.ibm.com/soub4i/gh-relay/internal/logo"
-	"github.ibm.com/soub4i/gh-relay/internal/secretscan"
-	"github.ibm.com/soub4i/gh-relay/internal/server"
-	"github.ibm.com/soub4i/gh-relay/internal/session"
-	"github.ibm.com/soub4i/gh-relay/internal/tunnel"
+	"github.com/soub4i/gh-relay/internal/filter"
+	"github.com/soub4i/gh-relay/internal/github"
+	"github.com/soub4i/gh-relay/internal/logo"
+	"github.com/soub4i/gh-relay/internal/secretscan"
+	"github.com/soub4i/gh-relay/internal/server"
+	"github.com/soub4i/gh-relay/internal/session"
+	"github.com/soub4i/gh-relay/internal/tunnel"
 )
 
 type shareFlags struct {
@@ -54,6 +54,12 @@ func RunShareSession(ctx context.Context, f shareFlags) error {
 	if err != nil {
 		return err
 	}
+
+	token, err := resolveToken(f.token)
+	if err != nil {
+		return err
+	}
+	f.token = token
 
 	printBanner(logger)
 
