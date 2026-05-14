@@ -32,21 +32,37 @@ $ gh-relay share --repo my-org/private-app --expire 1h
 ---
 
 ## How it works
-
-```
-┌─────────┐      HTTPS tunnel       ┌──────────────────────┐     GitHub API
-│  Guest  │ ◄────────────────────── │  gh-relay            │ ──────────────►
-│ browser │                         │  (your machine)      │  (your PAT)
-└─────────┘  sees code, never token └──────────────────────┘
-```
-
+                          YOUR MACHINE
+┌───────────────────────────────────────────────────────────────────────────┐
+│                                                                           │
+│  GH_RELAY_TOKEN  ──►  ┌─────────────────┐       ┌──────────────────────┐  │
+│  (or --token)         │   gh-relay      │       │   Tunnel Provider    │  │
+│  never leaves         │   proxy         │ ────► │                      │  │
+│                        └─────────────────┘      │  • Cloudflare (free) │  │
+│                              │                  │  • ngrok (free tier) │  │
+│                        ┌─────▼─────┐            └──────────┬───────────┘  │
+│                        │ optional  │                       │              │
+│                        │ passcode  │                       │              │
+│                        │ protection │                      │              │
+│                        └───────────┘                       │              │
+└────────────────────────────────────────────────────────────│──────────────┘
+                                                             │
+                                                             │ temp URL
+                                                             ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              GUEST                                         │
+│                                                                            │
+│   Browser ──► (URL + optional passcode) ──► read-only file browser         │
+│                                                                            │
+│   No GitHub account needed. Cannot push, clone, or download files.         │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 1. **You run** `gh-relay share` with your GitHub token and repo name.
-2. **A local proxy** starts on your machine and fetches files from the GitHub API using your token.
+2. **A local proxy** starts on your machine and fetches files from GitHub using your token.
 3. **A secure tunnel** (Cloudflare or ngrok) exposes the proxy via a temporary public URL.
-4. **Your guest opens the URL** and gets a read-only file browser, no GitHub account required.
+4. **Your guest opens the URL** and gets a read-only file browser. Optionally protect with a passcode.
 5. **You press `Ctrl+C`** (or `--expire` elapses) and the tunnel closes instantly. The URL is dead.
-
-Your token never leaves your machine. The guest can't push, clone, or access anything you didn't share.
+Your PAT never leaves your machine. The guest can't push, clone, or access anything you didn't share.
 
 ---
 
